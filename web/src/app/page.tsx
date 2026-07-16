@@ -86,17 +86,10 @@ export default function Home() {
     setBrainOpen(true);
     if (!graphRef.current) {
       const g = (await (await fetch("/api/graph")).json()) as Graph;
-      const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
-      (g.nodes as any[]).forEach((n, i) => {
-        const a = i * 2.4;
-        n.x = cx + Math.cos(a) * (120 + (i % 4) * 70);
-        n.y = cy + Math.sin(a) * (110 + (i % 3) * 70);
-        n.vx = 0; n.vy = 0;
-      });
       const byId: Record<string, any> = {};
       (g.nodes as any[]).forEach((n) => (byId[n.id] = n));
       (g as any).byId = byId;
-      graphRef.current = g;
+      graphRef.current = g;   // positions are (re)initialised in the render effect
       setGraphData(g);
       setGraphLoaded((x) => x + 1);
     }
@@ -121,7 +114,19 @@ export default function Home() {
     resize();
     window.addEventListener("resize", resize);
 
-    let drag: any = null, hover: any = null, raf = 0, frame = 0, fitted = false;
+    // (re)initialise node positions in a wide phyllotaxis disk every time the
+    // map opens — prevents the force sim from exploding out of view.
+    {
+      const N = G.nodes.length, R = 26 * Math.sqrt(N) + 60;
+      G.nodes.forEach((n: any, i: number) => {
+        const t = Math.sqrt((i + 0.5) / N), a = i * 2.399963;
+        n.x = cw / 2 + R * t * Math.cos(a);
+        n.y = ch / 2 + R * t * Math.sin(a);
+        n.vx = 0; n.vy = 0;
+      });
+    }
+
+    let drag: any = null, hover: any = null, raf = 0, frame = 0;
     let scale = 1, panX = 0, panY = 0, panning = false, lastX = 0, lastY = 0;
     const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
     const vis = (n: any) => !hiddenRef.current.has(n.group);
@@ -129,20 +134,30 @@ export default function Home() {
       G.links.some((l: GLink) => (l.source === a.id && l.target === b.id) || (l.target === a.id && l.source === b.id));
 
     const step = () => {
-      const cx = cw / 2 + 130, cy = ch / 2, REP = 2200, SPRING = 0.02, LEN = 96, DAMP = 0.85;
-      for (const n of G.nodes) { n.fx = (cx - n.x) * 0.004; n.fy = (cy - n.y) * 0.004; }
+      const cx = cw / 2, cy = ch / 2;
+      const REP = 1200, SPRING = 0.035, LEN = 54, DAMP = 0.9, MAXV = 28, MIND2 = 120;
+      for (const n of G.nodes) { n.fx = (cx - n.x) * 0.006; n.fy = (cy - n.y) * 0.006; }
       for (let i = 0; i < G.nodes.length; i++)
         for (let j = i + 1; j < G.nodes.length; j++) {
           const a = G.nodes[i], b = G.nodes[j];
-          const dx = a.x - b.x, dy = a.y - b.y, d2 = dx * dx + dy * dy || 1, d = Math.sqrt(d2), f = REP / d2;
-          const ux = dx / d, uy = dy / d; a.fx += ux * f; a.fy += uy * f; b.fx -= ux * f; b.fy -= uy * f;
+          let dx = a.x - b.x, dy = a.y - b.y, d2 = dx * dx + dy * dy;
+          if (d2 < MIND2) { if (dx === 0 && dy === 0) { dx = (i % 7) - 3 + 0.5; dy = (j % 7) - 3 + 0.5; } d2 = MIND2; }
+          const d = Math.sqrt(dx * dx + dy * dy) || 1, f = REP / d2, ux = dx / d, uy = dy / d;
+          a.fx += ux * f; a.fy += uy * f; b.fx -= ux * f; b.fy -= uy * f;
         }
       for (const l of G.links as GLink[]) {
         const a = G.byId[l.source], b = G.byId[l.target];
+        if (!a || !b) continue;
         const dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 1, f = SPRING * (d - LEN);
         const ux = dx / d, uy = dy / d; a.fx += ux * f; a.fy += uy * f; b.fx -= ux * f; b.fy -= uy * f;
       }
-      for (const n of G.nodes) { if (n === drag) continue; n.vx = (n.vx + n.fx) * DAMP; n.vy = (n.vy + n.fy) * DAMP; n.x += n.vx; n.y += n.vy; }
+      for (const n of G.nodes) {
+        if (n === drag) continue;
+        n.vx = (n.vx + n.fx) * DAMP; n.vy = (n.vy + n.fy) * DAMP;
+        n.vx = n.vx > MAXV ? MAXV : n.vx < -MAXV ? -MAXV : n.vx;
+        n.vy = n.vy > MAXV ? MAXV : n.vy < -MAXV ? -MAXV : n.vy;
+        n.x += n.vx; n.y += n.vy;
+      }
     };
     const draw = () => {
       const sel = selRef.current as any;
@@ -179,14 +194,17 @@ export default function Home() {
         if (n.x < minX) minX = n.x; if (n.x > maxX) maxX = n.x;
         if (n.y < minY) minY = n.y; if (n.y > maxY) maxY = n.y;
       }
+      if (!isFinite(minX) || !isFinite(maxX)) return;
       const w = maxX - minX || 1, h = maxY - minY || 1, pad = 90;
-      scale = clamp(Math.min((cw - 2 * pad) / w, (ch - 2 * pad) / h), 0.1, 1.6);
+      const s = clamp(Math.min((cw - 2 * pad) / w, (ch - 2 * pad) / h), 0.12, 1.6);
+      if (!isFinite(s) || s <= 0) return;
+      scale = s;
       panX = cw / 2 - ((minX + maxX) / 2) * scale;
       panY = ch / 2 - ((minY + maxY) / 2) * scale;
     };
     const loop = () => {
       frame++; step();
-      if (!fitted && frame === 90) { fit(); fitted = true; }
+      if (frame < 170 && frame % 12 === 0) fit();   // keep it framed while it settles
       draw();
       raf = requestAnimationFrame(loop);
     };
