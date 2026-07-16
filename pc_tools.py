@@ -150,6 +150,44 @@ def _human_duration(secs: int) -> str:
     return " ".join(parts) or "0 seconds"
 
 
+# ── file system access ───────────────────────────────────────────────────
+_FS_SEARCH = str(Path(__file__).parent / "fs_search.ps1")
+_KNOWN_FOLDERS = {
+    "home": "~", "user": "~",
+    "desktop": "~/Desktop",
+    "documents": "~/Documents", "docs": "~/Documents",
+    "downloads": "~/Downloads", "download": "~/Downloads",
+    "pictures": "~/Pictures", "photos": "~/Pictures",
+    "music": "~/Music", "videos": "~/Videos", "movies": "~/Videos",
+    "appdata": os.environ.get("APPDATA", ""),
+    "temp": os.environ.get("TEMP", ""),
+}
+
+
+def _resolve(name: str) -> str:
+    key = name.strip().strip('"').lower()
+    return os.path.expanduser(_KNOWN_FOLDERS.get(key, name.strip().strip('"')))
+
+
+def _fallback_search(q: str, limit: int) -> list[str]:
+    roots = [os.path.expanduser(p) for p in
+             ("~/Desktop", "~/Documents", "~/Downloads", "~/Pictures")]
+    ql, hits, scanned = q.lower(), [], 0
+    for root in roots:
+        if not os.path.isdir(root):
+            continue
+        for dp, dns, fns in os.walk(root):
+            scanned += 1
+            for nm in dns + fns:
+                if ql in nm.lower():
+                    hits.append(os.path.join(dp, nm))
+                    if len(hits) >= limit:
+                        return hits
+            if scanned > 3000:
+                return hits
+    return hits
+
+
 # ── tools ────────────────────────────────────────────────────────────────
 @tool("open_app", "Open an application or program on the PC by name, "
       "e.g. 'notepad', 'chrome', 'spotify', 'settings'.", {"name": str})
@@ -350,6 +388,69 @@ async def smart_home(args: dict[str, Any]) -> dict[str, Any]:
         return _ok(f"Couldn't trigger {action}: {e}")
 
 
+@tool("open_folder", "Open a folder in File Explorer. Accepts a known name "
+      "(downloads, documents, desktop, pictures, music, videos, home) or a full "
+      "path.", {"name": str})
+async def open_folder(args: dict[str, Any]) -> dict[str, Any]:
+    raw = str(args.get("name", "")).strip()
+    path = _resolve(raw)
+    if not os.path.isdir(path):
+        return _ok(f"I couldn't find the folder '{raw}'. Try a full path or a "
+                   f"name like Downloads.")
+    os.startfile(path)  # type: ignore[attr-defined]
+    return _ok(f"Opening {os.path.basename(path.rstrip(os.sep)) or path}.")
+
+
+@tool("open_path", "Open any file or folder by full path — files open in their "
+      "default app, folders open in Explorer.", {"path": str})
+async def open_path(args: dict[str, Any]) -> dict[str, Any]:
+    path = _resolve(str(args.get("path", "")))
+    if not os.path.exists(path):
+        return _ok(f"That path doesn't exist: {path}")
+    os.startfile(path)  # type: ignore[attr-defined]
+    return _ok(f"Opening {os.path.basename(path.rstrip(os.sep)) or path}.")
+
+
+@tool("find_files", "Search the whole PC for files or folders by name (uses the "
+      "Windows index). Returns matching full paths.", {"query": str, "limit": int})
+async def find_files(args: dict[str, Any]) -> dict[str, Any]:
+    q = str(args.get("query", "")).strip()
+    limit = int(args.get("limit") or 12)
+    if not q:
+        return _ok("What should I search for?")
+    paths: list[str] = []
+    try:
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+             "-File", _FS_SEARCH, "-Query", q, "-Limit", str(limit)],
+            capture_output=True, text=True, timeout=45)
+        paths = [ln.strip() for ln in (r.stdout or "").splitlines() if ln.strip()]
+    except Exception:  # noqa: BLE001
+        pass
+    if not paths:                       # index off/empty -> walk key folders
+        paths = _fallback_search(q, limit)
+    if not paths:
+        return _ok(f"I couldn't find anything matching '{q}'.")
+    return _ok(f"Found {len(paths)} match(es) for '{q}':\n" + "\n".join(paths[:limit]))
+
+
+@tool("list_directory", "List what's inside a folder (known name or full path).",
+      {"path": str})
+async def list_directory(args: dict[str, Any]) -> dict[str, Any]:
+    raw = str(args.get("path", "")).strip()
+    path = _resolve(raw)
+    if not os.path.isdir(path):
+        return _ok(f"'{raw}' isn't a folder I can open.")
+    try:
+        entries = sorted(os.listdir(path))
+    except Exception as e:  # noqa: BLE001
+        return _ok(f"I can't read {path}: {e}")
+    dirs = [e for e in entries if os.path.isdir(os.path.join(path, e))]
+    files = [e for e in entries if e not in dirs]
+    names = ", ".join((dirs + files)[:40]) or "nothing"
+    return _ok(f"{path} has {len(dirs)} folders and {len(files)} files: {names}.")
+
+
 @tool("list_models", "List the AI models AXON can run on and say which is "
       "active. Use when the user asks what models are available.", {})
 async def list_models(args: dict[str, Any]) -> dict[str, Any]:
@@ -404,6 +505,8 @@ _SAFE_TOOLS = [
     (system_status, "system_status"), (type_text, "type_text"),
     (set_timer, "set_timer"), (set_reminder, "set_reminder"),
     (play_music, "play_music"), (smart_home, "smart_home"),
+    (open_folder, "open_folder"), (open_path, "open_path"),
+    (find_files, "find_files"), (list_directory, "list_directory"),
     (list_models, "list_models"), (set_model, "set_model"),
 ]
 if config.ALLOW_RAW_SHELL:

@@ -27,6 +27,8 @@ Type into the HUD → Claude thinks → it acts on your PC → it talks back.
   - **type text into any focused window**
   - **timers & reminders** (announced aloud)
   - screenshot · lock PC · time/battery status
+  - **find & open files/folders** — "find my resume", "open the Downloads folder",
+    "what's in Documents" (search uses the Windows index; open/read only, never deletes)
   - **smart-home** via webhooks (configure in `config.py`)
   - **switch its own AI model** on command — "what models do you have", "switch to opus"
 - **Safety:** Claude is restricted to the curated tools above (`permission_mode="dontAsk"`).
