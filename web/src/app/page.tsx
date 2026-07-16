@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 type Msg = { role: "user" | "axon"; text: string };
 type St = { state: string; model: string; mic: boolean; history: Msg[] };
-type GNode = { id: string; label: string; group: string; size: number };
+type GNode = { id: string; label: string; group: string; size: number; hub?: boolean };
 type GLink = { source: string; target: string };
 type Graph = {
   title: string;
@@ -23,8 +23,13 @@ const SUBS: Record<string, string> = {
   error: "something went wrong",
 };
 const GC: Record<string, string> = {
+  // notes-vault groups
   core: "#ff8a3d", project: "#b06cff", concept: "#ffd23f",
   skill: "#21d4fd", tool: "#2bd576", note: "#6b7fa0",
+  // file-map categories
+  folder: "#ffb020", document: "#21d4fd", image: "#b06cff",
+  video: "#ff5470", audio: "#2bd576", code: "#ff8a3d",
+  archive: "#8b949e", file: "#6b7fa0",
 };
 const colorOf = (g: string) => GC[g] || "#6b7fa0";
 
@@ -103,9 +108,9 @@ export default function Home() {
     const canvas = canvasRef.current;
     if (!G || !canvas) return;
     const ctx = canvas.getContext("2d")!;
-    let cw = 0, ch = 0;
+    let cw = 0, ch = 0, dpr = 1;
     const resize = () => {
-      const dpr = window.devicePixelRatio || 1;
+      dpr = window.devicePixelRatio || 1;
       cw = window.innerWidth; ch = window.innerHeight;
       canvas.width = Math.floor(cw * dpr);
       canvas.height = Math.floor(ch * dpr);
@@ -116,7 +121,9 @@ export default function Home() {
     resize();
     window.addEventListener("resize", resize);
 
-    let drag: any = null, hover: any = null, raf = 0;
+    let drag: any = null, hover: any = null, raf = 0, frame = 0, fitted = false;
+    let scale = 1, panX = 0, panY = 0, panning = false, lastX = 0, lastY = 0;
+    const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
     const vis = (n: any) => !hiddenRef.current.has(n.group);
     const isNbr = (a: any, b: any) =>
       G.links.some((l: GLink) => (l.source === a.id && l.target === b.id) || (l.target === a.id && l.source === b.id));
@@ -139,7 +146,10 @@ export default function Home() {
     };
     const draw = () => {
       const sel = selRef.current as any;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, cw, ch);
+      ctx.translate(panX, panY);
+      ctx.scale(scale, scale);
       for (const l of G.links as GLink[]) {
         const a = G.byId[l.source], b = G.byId[l.target];
         if (!vis(a) || !vis(b)) continue;
@@ -153,38 +163,67 @@ export default function Home() {
         const r = 6 + n.size * 1.7;
         const dim = sel && sel.id !== n.id && !isNbr(sel, n);
         ctx.globalAlpha = dim ? 0.22 : 1; ctx.fillStyle = colorOf(n.group);
-        ctx.shadowColor = colorOf(n.group); ctx.shadowBlur = n === hover || (sel && sel.id === n.id) ? 20 : 8;
+        ctx.shadowColor = colorOf(n.group);
+        ctx.shadowBlur = (n === hover || (sel && sel.id === n.id)) ? 20 : (n.hub ? 8 : 0);
         ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
-        if (n === hover || (sel && sel.id === n.id) || n.size >= 4) {
+        if (n === hover || (sel && sel.id === n.id) || n.hub) {
           ctx.globalAlpha = dim ? 0.3 : 0.95; ctx.fillStyle = "#dcebff";
           ctx.font = "11px Segoe UI"; ctx.textAlign = "center"; ctx.fillText(n.label, n.x, n.y - r - 6);
         }
         ctx.globalAlpha = 1;
       }
     };
-    const loop = () => { step(); draw(); raf = requestAnimationFrame(loop); };
+    const fit = () => {
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const n of G.nodes) {
+        if (n.x < minX) minX = n.x; if (n.x > maxX) maxX = n.x;
+        if (n.y < minY) minY = n.y; if (n.y > maxY) maxY = n.y;
+      }
+      const w = maxX - minX || 1, h = maxY - minY || 1, pad = 90;
+      scale = clamp(Math.min((cw - 2 * pad) / w, (ch - 2 * pad) / h), 0.1, 1.6);
+      panX = cw / 2 - ((minX + maxX) / 2) * scale;
+      panY = ch / 2 - ((minY + maxY) / 2) * scale;
+    };
+    const loop = () => {
+      frame++; step();
+      if (!fitted && frame === 90) { fit(); fitted = true; }
+      draw();
+      raf = requestAnimationFrame(loop);
+    };
     loop();
 
-    const at = (x: number, y: number) => {
+    const at = (sx: number, sy: number) => {
+      const wx = (sx - panX) / scale, wy = (sy - panY) / scale;
       for (let i = G.nodes.length - 1; i >= 0; i--) {
         const n = G.nodes[i]; if (!vis(n)) continue;
         const r = 6 + n.size * 1.7;
-        if ((x - n.x) ** 2 + (y - n.y) ** 2 <= (r + 5) ** 2) return n;
+        if ((wx - n.x) ** 2 + (wy - n.y) ** 2 <= (r + 6 / scale) ** 2) return n;
       }
       return null;
     };
     const onMove = (e: MouseEvent) => {
-      const b = canvas.getBoundingClientRect(), x = e.clientX - b.left, y = e.clientY - b.top;
-      if (drag) { drag.x = x; drag.y = y; drag.vx = 0; drag.vy = 0; }
-      else { hover = at(x, y); canvas.style.cursor = hover ? "pointer" : "default"; }
+      const b = canvas.getBoundingClientRect(), sx = e.clientX - b.left, sy = e.clientY - b.top;
+      if (drag) { drag.x = (sx - panX) / scale; drag.y = (sy - panY) / scale; drag.vx = 0; drag.vy = 0; }
+      else if (panning) { panX += sx - lastX; panY += sy - lastY; lastX = sx; lastY = sy; }
+      else { hover = at(sx, sy); canvas.style.cursor = hover ? "pointer" : "grab"; }
     };
     const onDown = (e: MouseEvent) => {
-      const b = canvas.getBoundingClientRect(), n = at(e.clientX - b.left, e.clientY - b.top);
-      if (n) { drag = n; setSelNode(n); } else setSelNode(null);
+      const b = canvas.getBoundingClientRect(), sx = e.clientX - b.left, sy = e.clientY - b.top;
+      const n = at(sx, sy);
+      if (n) { drag = n; setSelNode(n); }
+      else { panning = true; lastX = sx; lastY = sy; setSelNode(null); canvas.style.cursor = "grabbing"; }
     };
-    const onUp = () => { drag = null; };
+    const onUp = () => { drag = null; panning = false; };
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const b = canvas.getBoundingClientRect(), mx = e.clientX - b.left, my = e.clientY - b.top;
+      const wx = (mx - panX) / scale, wy = (my - panY) / scale;
+      scale = clamp(scale * (e.deltaY < 0 ? 1.12 : 0.89), 0.08, 5);
+      panX = mx - wx * scale; panY = my - wy * scale;
+    };
     canvas.addEventListener("mousemove", onMove);
     canvas.addEventListener("mousedown", onDown);
+    canvas.addEventListener("wheel", onWheel, { passive: false });
     window.addEventListener("mouseup", onUp);
     return () => {
       cancelAnimationFrame(raf);
@@ -192,6 +231,7 @@ export default function Home() {
       window.removeEventListener("mouseup", onUp);
       canvas.removeEventListener("mousemove", onMove);
       canvas.removeEventListener("mousedown", onDown);
+      canvas.removeEventListener("wheel", onWheel);
     };
   }, [brainOpen, graphLoaded]);
 
@@ -283,6 +323,7 @@ export default function Home() {
               {graphData ? `${graphData.stats.notes} notes · ${graphData.stats.connections} connections` : "loading…"}
             </div>
             <input onChange={(e) => onSearch(e.target.value)} placeholder="Search the brain…" className="w-full rounded-lg border border-line bg-[#0b1424] px-2.5 py-2 text-[13px] text-ink outline-none" />
+            <div className="mt-2 text-[10px] text-dim">scroll = zoom · drag = pan · click a node</div>
             <div className="mb-1.5 mt-4 text-[10px] uppercase tracking-[0.2em] text-dim">Top hubs</div>
             {graphData?.hubs.map((h) => (
               <div key={h.label} className="flex items-center gap-2 px-0.5 py-1 text-xs"><span>{h.label}</span><span className="ml-auto text-dim">{h.size}</span></div>

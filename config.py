@@ -73,6 +73,13 @@ GREETING = (
 SMART_HOME_WEBHOOKS: dict[str, str] = {}
 
 # ── Second-brain graph ───────────────────────────────────────────────────
-# Folder of markdown notes to visualise. If it doesn't exist, AXON seeds a
-# few starter notes so the graph isn't empty. Notes link via [[wiki links]].
+# Folder of markdown notes to visualise (used only if GRAPH_ROOT is unset /
+# missing). Notes link via [[wiki links]]; seeded on first run.
 NOTES_DIR = os.environ.get("AXON_NOTES", os.path.join(os.path.dirname(__file__), "notes"))
+
+# Real "second brain": map an actual folder tree on the PC (files + folders as
+# nodes, containment as edges). This is what fills the graph with ALL your data.
+# Point it anywhere with AXON_GRAPH_ROOT. Set to "" to use the notes vault above.
+GRAPH_ROOT = os.environ.get("AXON_GRAPH_ROOT", os.path.expanduser("~"))
+GRAPH_MAX_NODES = int(os.environ.get("AXON_GRAPH_MAX", "600"))  # cap for perf
+GRAPH_MAX_DEPTH = int(os.environ.get("AXON_GRAPH_DEPTH", "6"))
