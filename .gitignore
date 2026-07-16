@@ -1,0 +1,18 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Personal notes (the second-brain seeds itself on first run)
+notes/
+
+# Generated / local artifacts
+*.wav
+axon_shot_*.png
+
+# Editor / OS
+.claude/
+.vscode/
+.idea/
+Thumbs.db

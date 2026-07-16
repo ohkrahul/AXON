@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A.X.O.N.</title>
+<style>
+  :root{
+    --bg:#04070d; --panel:#0a1220; --line:#12233b;
+    --text:#cfe4ff; --dim:#5f7fa6; --accent:#21d4fd; --amber:#ff8a3d;
+  }
+  body[data-state="listening"]{ --accent:#2bd576; }
+  body[data-state="thinking"] { --accent:#ffb020; }
+  body[data-state="speaking"] { --accent:#b06cff; }
+  body[data-state="error"]    { --accent:#ff5470; }
+
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%}
+  body{
+    background:
+      radial-gradient(1200px 700px at 50% -10%, #0b1830 0%, var(--bg) 60%),
+      var(--bg);
+    color:var(--text); font-family:"Segoe UI",system-ui,sans-serif;
+    overflow:hidden; display:flex; flex-direction:column; align-items:center;
+    height:100vh;
+  }
+  /* faint grid + vignette */
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;
+    background-image:linear-gradient(var(--line) 1px,transparent 1px),
+      linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:44px 44px; opacity:.12; mask:radial-gradient(circle at 50% 40%,#000 30%,transparent 78%)}
+  .corner{position:fixed;width:46px;height:46px;border:2px solid var(--accent);opacity:.5;transition:border-color .4s}
+  .corner.tl{top:16px;left:16px;border-right:0;border-bottom:0}
+  .corner.tr{top:16px;right:16px;border-left:0;border-bottom:0}
+  .corner.bl{bottom:16px;left:16px;border-right:0;border-top:0}
+  .corner.br{bottom:16px;right:16px;border-left:0;border-top:0}
+
+  header{margin-top:26px;text-align:center;letter-spacing:.42em;font-size:12px;color:var(--dim)}
+  header b{color:var(--accent)}
+
+  /* ── arc reactor ── */
+  .reactor{position:relative;width:300px;height:300px;margin:14px 0 4px;
+    display:grid;place-items:center;filter:drop-shadow(0 0 24px color-mix(in srgb,var(--accent) 45%,transparent))}
+  .reactor .ring,.reactor svg{position:absolute;inset:0;margin:auto}
+  .ring{border-radius:50%}
+  .r1{width:300px;height:300px;border:1px solid color-mix(in srgb,var(--accent) 35%,transparent)}
+  .r2{width:232px;height:232px;border:1px solid color-mix(in srgb,var(--accent) 22%,transparent)}
+  .r3{width:150px;height:150px;border:2px solid color-mix(in srgb,var(--accent) 60%,transparent);
+      box-shadow:0 0 22px color-mix(in srgb,var(--accent) 55%,transparent), inset 0 0 18px color-mix(in srgb,var(--accent) 30%,transparent)}
+  svg{width:300px;height:300px}
+  .ticks{animation:spin 26s linear infinite}
+  .ticks2{animation:spin 40s linear infinite reverse;width:232px;height:232px}
+  .sweep{animation:spin 6s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .core{width:112px;height:112px;border-radius:50%;
+    background:radial-gradient(circle at 50% 40%, #eaffff 0%, var(--accent) 42%, color-mix(in srgb,var(--accent) 20%,#02060c) 100%);
+    box-shadow:0 0 40px color-mix(in srgb,var(--accent) 70%,transparent);
+    display:grid;place-items:center;animation:breathe 3.2s ease-in-out infinite;transition:background .4s}
+  body[data-state="thinking"] .core{animation-duration:1s}
+  body[data-state="speaking"] .core{animation-duration:.7s}
+  body[data-state="listening"] .core{animation-duration:1.6s}
+  @keyframes breathe{0%,100%{transform:scale(.9)}50%{transform:scale(1.06)}}
+  .core span{font-weight:800;font-size:13px;letter-spacing:.12em;color:#02121a;text-shadow:0 1px 2px rgba(255,255,255,.4)}
+
+  .status{margin-top:6px;text-align:center}
+  .status .st{font-weight:700;letter-spacing:.34em;font-size:15px;color:var(--accent);
+    text-shadow:0 0 14px color-mix(in srgb,var(--accent) 60%,transparent)}
+  .status .sub{margin-top:4px;color:var(--dim);font-size:12px;min-height:16px}
+  .status .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);
+    margin-right:8px;box-shadow:0 0 10px var(--accent);animation:blink 1.4s ease-in-out infinite;vertical-align:middle}
+  @keyframes blink{50%{opacity:.25}}
+
+  /* ── transcript ── */
+  .feed{flex:1;width:min(760px,92vw);overflow-y:auto;margin:14px 0;padding:0 6px;
+    display:flex;flex-direction:column;gap:10px;mask:linear-gradient(#000 88%,transparent)}
+  .feed::-webkit-scrollbar{width:6px}.feed::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
+  .msg{max-width:80%;padding:10px 14px;border-radius:12px;font-size:14px;line-height:1.5;animation:rise .25s ease}
+  @keyframes rise{from{opacity:0;transform:translateY(6px)}}
+  .msg.user{align-self:flex-end;background:#0e2036;border:1px solid #1d3f63;color:#dcecff}
+  .msg.axon{align-self:flex-start;background:color-mix(in srgb,var(--accent) 10%,var(--panel));
+    border:1px solid color-mix(in srgb,var(--accent) 35%,var(--line));color:var(--text)}
+  .msg .who{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim);margin-bottom:3px}
+
+  /* ── input bar ── */
+  .bar{width:min(760px,92vw);display:flex;gap:10px;align-items:center;
+    background:var(--panel);border:1px solid color-mix(in srgb,var(--accent) 30%,var(--line));
+    border-radius:14px;padding:8px 8px 8px 16px;margin-bottom:22px;
+    box-shadow:0 0 30px color-mix(in srgb,var(--accent) 18%,transparent)}
+  .pill{font-size:11px;letter-spacing:.1em;color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 45%,transparent);
+    border-radius:999px;padding:4px 10px;white-space:nowrap;text-transform:uppercase}
+  .bar input{flex:1;background:transparent;border:0;outline:0;color:var(--text);font-size:15px}
+  .bar input::placeholder{color:var(--dim)}
+  .send{width:42px;height:42px;border:0;border-radius:10px;cursor:pointer;color:#04121a;
+    background:linear-gradient(135deg,#eaffff,var(--accent));box-shadow:0 0 18px color-mix(in srgb,var(--accent) 60%,transparent);
+    font-size:18px;display:grid;place-items:center;transition:transform .1s}
+  .send:active{transform:scale(.92)}
+  .mic{font-size:11px;color:var(--dim);letter-spacing:.08em}
+  .mic b{color:var(--accent)}
+
+  /* ── second-brain graph overlay ── */
+  #brainBtn{position:fixed;top:16px;right:78px;z-index:6;background:var(--panel);
+    color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 45%,transparent);
+    border-radius:8px;padding:7px 12px;font-size:11px;letter-spacing:.14em;cursor:pointer;
+    font-family:inherit;text-transform:uppercase}
+  #brainBtn:hover{box-shadow:0 0 14px color-mix(in srgb,var(--accent) 50%,transparent)}
+  #brain{position:fixed;inset:0;z-index:20;display:none;
+    background:radial-gradient(1000px 700px at 60% 42%,#08121f,#04070d)}
+  #brain.open{display:block}
+  #brain canvas{position:absolute;inset:0}
+  .side{position:absolute;top:0;left:0;width:272px;height:100%;padding:22px 18px;overflow-y:auto;
+    background:linear-gradient(90deg,rgba(6,12,22,.94),rgba(6,12,22,.5));border-right:1px solid var(--line)}
+  .side h2{font-size:13px;letter-spacing:.16em;color:var(--accent)}
+  .side .meta{color:var(--dim);font-size:11px;margin:4px 0 14px}
+  .side input{width:100%;background:#0b1424;border:1px solid var(--line);border-radius:8px;
+    color:var(--text);padding:8px 10px;font-size:13px;outline:0}
+  .side .h{font-size:10px;letter-spacing:.2em;color:var(--dim);text-transform:uppercase;margin:16px 0 6px}
+  .row{display:flex;align-items:center;gap:8px;font-size:12px;padding:4px 2px;color:var(--text);cursor:pointer}
+  .row .n{margin-left:auto;color:var(--dim)}
+  .dotc{width:10px;height:10px;border-radius:50%;flex:none}
+  .legend .row.off{opacity:.32}
+  #brainClose{position:absolute;top:16px;right:16px;z-index:22;background:var(--panel);color:var(--text);
+    border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer;font-family:inherit}
+  #inspect{position:absolute;right:16px;bottom:16px;width:264px;background:rgba(6,12,22,.92);
+    border:1px solid color-mix(in srgb,var(--accent) 30%,var(--line));border-radius:10px;padding:12px 14px;
+    font-size:12px;color:var(--dim);display:none;line-height:1.5}
+  #inspect b{color:var(--accent);font-size:13px}
+</style>
+</head>
+<body data-state="idle">
+  <div class="corner tl"></div><div class="corner tr"></div>
+  <div class="corner bl"></div><div class="corner br"></div>
+
+  <header>&#9670; <b>A.X.O.N.</b> &#8226; SECOND BRAIN &#9670;</header>
+
+  <div class="reactor">
+    <svg class="ticks" viewBox="0 0 300 300"><circle cx="150" cy="150" r="140" fill="none"
+      stroke="var(--accent)" stroke-width="8" stroke-dasharray="1.5 9" opacity=".55"/></svg>
+    <svg class="ticks2" viewBox="0 0 232 232"><circle cx="116" cy="116" r="108" fill="none"
+      stroke="var(--accent)" stroke-width="5" stroke-dasharray="1 12" opacity=".4"/></svg>
+    <svg class="sweep" viewBox="0 0 300 300"><circle cx="150" cy="150" r="118" fill="none"
+      stroke="var(--amber)" stroke-width="3" stroke-dasharray="150 600" stroke-linecap="round" opacity=".85"/></svg>
+    <div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div>
+    <div class="core"><span>AXON</span></div>
+  </div>
+
+  <div class="status">
+    <div class="st"><span class="dot"></span><span id="st">IDLE</span></div>
+    <div class="sub" id="sub">standing by</div>
+  </div>
+
+  <div class="feed" id="feed"></div>
+
+  <div class="bar">
+    <span class="pill" id="model">MODEL</span>
+    <input id="inp" placeholder="Speak to Axon… (type a command)" autocomplete="off" autofocus>
+    <button class="send" id="send" title="Send">&#10148;</button>
+    <span class="mic" id="mic"></span>
+  </div>
+
+  <button id="brainBtn">&#9635; Brain</button>
+  <div id="brain">
+    <canvas id="gcanvas"></canvas>
+    <div class="side">
+      <h2 id="gtitle">SECOND BRAIN</h2>
+      <div class="meta" id="gmeta"></div>
+      <input id="gsearch" placeholder="Search the brain…" autocomplete="off">
+      <div class="h">Top hubs</div>
+      <div id="ghubs"></div>
+      <div class="h">Filter</div>
+      <div class="legend" id="glegend"></div>
+    </div>
+    <button id="brainClose">&#10005; Close</button>
+    <div id="inspect"></div>
+  </div>
+
+<script>
+const SUBS = {
+  idle:"standing by, sir", listening:"listening, sir…",
+  thinking:"processing your request…", speaking:"speaking…", error:"something went wrong"
+};
+let shown = 0;
+const feed = document.getElementById('feed');
+
+async function send(){
+  const inp = document.getElementById('inp');
+  const text = inp.value.trim();
+  if(!text) return;
+  inp.value = '';
+  try{ await fetch('/say',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})}); }
+  catch(e){}
+}
+document.getElementById('send').onclick = send;
+document.getElementById('inp').addEventListener('keydown',e=>{ if(e.key==='Enter') send(); });
+
+function render(hist){
+  for(let i=shown;i<hist.length;i++){
+    const m = hist[i];
+    const el = document.createElement('div');
+    el.className = 'msg ' + (m.role==='user'?'user':'axon');
+    el.innerHTML = '<div class="who">'+(m.role==='user'?'You':'Axon')+'</div>'+
+                   m.text.replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+    feed.appendChild(el);
+  }
+  if(hist.length>shown){ shown=hist.length; feed.scrollTop=feed.scrollHeight; }
+}
+
+async function poll(){
+  try{
+    const s = await (await fetch('/state')).json();
+    document.body.dataset.state = s.state;
+    document.getElementById('st').textContent = s.state.toUpperCase();
+    document.getElementById('sub').textContent = SUBS[s.state] || '';
+    document.getElementById('model').textContent = (s.model||'').replace(/^claude-/,'').toUpperCase();
+    document.getElementById('mic').innerHTML = s.mic ? '&#127908; <b>voice on</b>' : '&#9000; type to talk';
+    render(s.history||[]);
+  }catch(e){}
+}
+setInterval(poll, 250); poll();
+
+// ── second-brain graph ──────────────────────────────────────────────────
+const GC = {core:'#ff8a3d',project:'#b06cff',concept:'#ffd23f',skill:'#21d4fd',tool:'#2bd576',note:'#6b7fa0'};
+const colorOf = g => GC[g] || '#6b7fa0';
+const brain = document.getElementById('brain');
+const gcanvas = document.getElementById('gcanvas');
+const gctx = gcanvas.getContext('2d');
+let G=null, raf=null, hover=null, sel=null, drag=null;
+const off = new Set();
+
+function gresize(){ gcanvas.width=brain.clientWidth; gcanvas.height=brain.clientHeight; }
+window.addEventListener('resize',()=>{ if(brain.classList.contains('open')) gresize(); });
+
+async function openBrain(){
+  brain.classList.add('open'); gresize();
+  if(!G){ G = await (await fetch('/graph')).json(); initSim(); buildSide(); }
+  if(!raf) loop();
+}
+function closeBrain(){ brain.classList.remove('open'); if(raf){cancelAnimationFrame(raf);raf=null;} }
+document.getElementById('brainBtn').onclick = openBrain;
+document.getElementById('brainClose').onclick = closeBrain;
+
+function initSim(){
+  const cx=gcanvas.width/2, cy=gcanvas.height/2;
+  G.byId={};
+  G.nodes.forEach((n,i)=>{ const a=i*2.4; n.x=cx+Math.cos(a)*(120+ (i%4)*70); n.y=cy+Math.sin(a)*(110+(i%3)*70); n.vx=0;n.vy=0; G.byId[n.id]=n; });
+}
+function step(){
+  const cx=gcanvas.width/2, cy=gcanvas.height/2, REP=2200, SPRING=0.02, LEN=96, DAMP=0.85;
+  for(const n of G.nodes){ n.fx=(cx-n.x)*0.004; n.fy=(cy-n.y)*0.004; }
+  for(let i=0;i<G.nodes.length;i++)for(let j=i+1;j<G.nodes.length;j++){
+    const a=G.nodes[i],b=G.nodes[j]; let dx=a.x-b.x,dy=a.y-b.y,d2=dx*dx+dy*dy||1,d=Math.sqrt(d2),f=REP/d2,ux=dx/d,uy=dy/d;
+    a.fx+=ux*f;a.fy+=uy*f;b.fx-=ux*f;b.fy-=uy*f;
+  }
+  for(const l of G.links){ const a=G.byId[l.source],b=G.byId[l.target]; let dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy)||1,f=SPRING*(d-LEN),ux=dx/d,uy=dy/d;
+    a.fx+=ux*f;a.fy+=uy*f;b.fx-=ux*f;b.fy-=uy*f; }
+  for(const n of G.nodes){ if(n===drag) continue; n.vx=(n.vx+n.fx)*DAMP; n.vy=(n.vy+n.fy)*DAMP; n.x+=n.vx; n.y+=n.vy; }
+}
+const vis = n => !off.has(n.group);
+const isNbr = (a,b)=>G.links.some(l=>(l.source===a.id&&l.target===b.id)||(l.target===a.id&&l.source===b.id));
+function draw(){
+  gctx.clearRect(0,0,gcanvas.width,gcanvas.height);
+  for(const l of G.links){ const a=G.byId[l.source],b=G.byId[l.target]; if(!vis(a)||!vis(b))continue;
+    const hot=sel&&(l.source===sel.id||l.target===sel.id);
+    gctx.strokeStyle=hot?'rgba(130,205,255,.75)':'rgba(80,140,200,.14)'; gctx.lineWidth=hot?1.6:0.8;
+    gctx.beginPath();gctx.moveTo(a.x,a.y);gctx.lineTo(b.x,b.y);gctx.stroke(); }
+  for(const n of G.nodes){ if(!vis(n))continue; const r=6+n.size*1.7;
+    const dim=sel&&sel.id!==n.id&&!isNbr(sel,n);
+    gctx.globalAlpha=dim?0.22:1; gctx.fillStyle=colorOf(n.group);
+    gctx.shadowColor=colorOf(n.group); gctx.shadowBlur=(n===hover||n===sel)?20:8;
+    gctx.beginPath();gctx.arc(n.x,n.y,r,0,7);gctx.fill(); gctx.shadowBlur=0;
+    if(n===hover||n===sel||n.size>=4){ gctx.globalAlpha=dim?0.3:0.95; gctx.fillStyle='#dCEBFF';
+      gctx.font='11px Segoe UI'; gctx.textAlign='center'; gctx.fillText(n.label,n.x,n.y-r-6); }
+    gctx.globalAlpha=1;
+  }
+}
+function loop(){ step(); draw(); raf=requestAnimationFrame(loop); }
+
+function gnodeAt(x,y){ for(let i=G.nodes.length-1;i>=0;i--){ const n=G.nodes[i]; if(!vis(n))continue; const r=6+n.size*1.7; if((x-n.x)**2+(y-n.y)**2<=(r+5)**2) return n; } return null; }
+gcanvas.addEventListener('mousemove',e=>{ const b=gcanvas.getBoundingClientRect(),x=e.clientX-b.left,y=e.clientY-b.top;
+  if(drag){ drag.x=x;drag.y=y;drag.vx=0;drag.vy=0; } else { hover=gnodeAt(x,y); gcanvas.style.cursor=hover?'pointer':'default'; } });
+gcanvas.addEventListener('mousedown',e=>{ const b=gcanvas.getBoundingClientRect(),n=gnodeAt(e.clientX-b.left,e.clientY-b.top);
+  if(n){ drag=n; sel=n; showInspect(n); } else { sel=null; document.getElementById('inspect').style.display='none'; } });
+window.addEventListener('mouseup',()=>{ drag=null; });
+
+function showInspect(n){
+  const box=document.getElementById('inspect');
+  const nb=G.links.filter(l=>l.source===n.id||l.target===n.id).map(l=>l.source===n.id?l.target:l.source);
+  box.style.display='block';
+  box.innerHTML='<b>'+n.label+'</b><br>'+n.group+' · '+nb.length+' connections<br><br>'+
+    (nb.map(id=>G.byId[id].label).join(', ') || 'no links yet');
+}
+function buildSide(){
+  document.getElementById('gtitle').textContent=G.title;
+  document.getElementById('gmeta').textContent=G.stats.notes+' notes · '+G.stats.connections+' connections';
+  document.getElementById('ghubs').innerHTML=G.hubs.map(h=>'<div class="row"><span>'+h.label+'</span><span class="n">'+h.size+'</span></div>').join('');
+  const leg=document.getElementById('glegend');
+  leg.innerHTML=G.groups.map(g=>'<div class="row" data-g="'+g.name+'"><span class="dotc" style="background:'+colorOf(g.name)+'"></span>'+g.name+'<span class="n">'+g.count+'</span></div>').join('');
+  leg.querySelectorAll('.row').forEach(row=>row.onclick=()=>{ const g=row.dataset.g; if(off.has(g)){off.delete(g);row.classList.remove('off');}else{off.add(g);row.classList.add('off');} });
+}
+document.getElementById('gsearch').addEventListener('input',e=>{ const q=e.target.value.trim().toLowerCase();
+  if(!q){ sel=null; document.getElementById('inspect').style.display='none'; return; }
+  const hit=G.nodes.find(n=>n.label.toLowerCase().includes(q)); if(hit){ sel=hit; showInspect(hit); } });
+</script>
+</body>
+</html>
