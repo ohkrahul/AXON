@@ -28,6 +28,7 @@ Type into the HUD → Claude thinks → it acts on your PC → it talks back.
   - **timers & reminders** (announced aloud)
   - screenshot · lock PC · time/battery status
   - **smart-home** via webhooks (configure in `config.py`)
+  - **switch its own AI model** on command — "what models do you have", "switch to opus"
 - **Safety:** Claude is restricted to the curated tools above (`permission_mode="dontAsk"`).
   Raw PowerShell is off unless `AXON_ALLOW_SHELL=1`.
 
@@ -43,17 +44,31 @@ launch normally — it auto-detects and goes live. It uses the OS speech recogni
 
 ## Run it
 
-**Sci-fi HUD (recommended):**
+AXON is a **Next.js front-end + Python back-end**. The Python API holds the
+brain/PC-control/voice; the Next.js app (React + Tailwind) is the HUD and calls
+the API through a `/api` proxy.
+
+**Next.js + Python combo (recommended):** double-click **`run_axon_web.bat`**
+(starts both, opens `http://localhost:3000`), or manually:
 ```powershell
-.\.venv\Scripts\python.exe server.py
+# terminal 1 — Python API
+$env:AXON_API_ONLY="1"; .\.venv\Scripts\python.exe server.py
+# terminal 2 — Next.js HUD
+cd web ; npm run dev
 ```
-or double-click **`run_jarvis.bat`**. Then click **◧ Brain** (top-right) for the graph.
+
+**Built-in HUD (no Node, single process):**
+```powershell
+.\.venv\Scripts\python.exe server.py        # serves webui.html itself
+```
 
 Other front-ends:
 ```powershell
-.\.venv\Scripts\python.exe main.py        # lightweight tkinter orb
-.\.venv\Scripts\python.exe main_text.py   # console only
+.\.venv\Scripts\python.exe main.py          # lightweight tkinter orb
+.\.venv\Scripts\python.exe main_text.py     # console only
 ```
+
+Then click **▣ Brain** (top-right) for the second-brain graph.
 
 Try: `open notepad` · `set volume to 30%` · `play lo-fi beats on spotify` ·
 `set a 5 minute timer` · `remind me in 10 minutes to stretch` ·
@@ -91,8 +106,10 @@ claude        # run once and /login (if not already)
 
 | File | Role |
 |---|---|
-| `server.py` | Web HUD backend (serves HUD, `/state`, `/graph`, `/say`) |
-| `webui.html` | Sci-fi HUD + second-brain graph front-end |
+| `server.py` | Python API + built-in HUD (`/state`, `/graph`, `/say`; CORS + `/api` for Next.js) |
+| `web/` | Next.js (React + Tailwind) front-end; proxies `/api/*` → Python |
+| `run_axon_web.bat` | Launch the Next.js + Python combo together |
+| `webui.html` | Built-in single-process HUD (no Node needed) |
 | `graph.py` | Parses the notes folder into a node/edge graph |
 | `brain.py` | Claude Agent SDK wrapper |
 | `pc_tools.py` | Curated PC-control tools Claude can call |

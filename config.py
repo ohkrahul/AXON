@@ -13,6 +13,15 @@ WAKE_WORD = "axon"  # what you say to activate it
 # claude-haiku-4-5-20251001 (fast+cheap), claude-sonnet-5, claude-opus-4-8.
 MODEL = os.environ.get("AXON_MODEL", "claude-fable-5")
 
+# Models AXON can switch between at runtime — alias -> (model id, description).
+# The user can say "switch to opus" or "what models do you have".
+AVAILABLE_MODELS: dict[str, tuple[str, str]] = {
+    "fable":  ("claude-fable-5",            "Fable 5 — fast, great for quick conversation (default)"),
+    "opus":   ("claude-opus-4-8",           "Opus 4.8 — most capable, best for hard reasoning"),
+    "sonnet": ("claude-sonnet-5",           "Sonnet 5 — balanced capability and speed"),
+    "haiku":  ("claude-haiku-4-5-20251001", "Haiku 4.5 — fastest and lightest"),
+}
+
 # Personality / behaviour. Kept short on purpose: replies are spoken aloud,
 # so we want them concise and conversational, not walls of text.
 PERSONA = (
@@ -24,7 +33,9 @@ PERSONA = (
     "PC (open an app, search the web, change volume, take a screenshot, etc.), "
     "use your tools to actually do it, then confirm briefly in one sentence. "
     "If a request is ambiguous or risky, ask a short clarifying question "
-    "instead of guessing."
+    "instead of guessing. You can switch which AI model you run on with the "
+    "set_model tool, and list the models you support with list_models when the "
+    "user asks what models you have."
 )
 
 # ── Safety ───────────────────────────────────────────────────────────────

@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+/* palette tokens -> Tailwind utilities (bg-panel, text-dim, border-line, …) */
+@theme {
+  --color-bg: #04070d;
+  --color-panel: #0a1220;
+  --color-line: #12233b;
+  --color-ink: #cfe4ff;
+  --color-dim: #5f7fa6;
+  --color-amber: #ff8a3d;
+}
+
+html, body { height: 100%; }
+body {
+  background: radial-gradient(1200px 700px at 50% -10%, #0b1830 0%, var(--color-bg) 60%), var(--color-bg);
+  color: var(--color-ink);
+  font-family: "Segoe UI", system-ui, sans-serif;
+  overflow: hidden;
+}
+
+/* accent colour is driven by assistant state (set on .app) */
+.app { --accent: #21d4fd; }
+.app[data-state="listening"] { --accent: #2bd576; }
+.app[data-state="thinking"]  { --accent: #ffb020; }
+.app[data-state="speaking"]  { --accent: #b06cff; }
+.app[data-state="error"]     { --accent: #ff5470; }
+
+@keyframes spin    { to { transform: rotate(360deg); } }
+@keyframes breathe { 0%,100% { transform: scale(.9); } 50% { transform: scale(1.06); } }
+@keyframes blink   { 50% { opacity: .25; } }
+@keyframes rise    { from { opacity: 0; transform: translateY(6px); } }
+.anim-rise { animation: rise .25s ease; }
+.dot { animation: blink 1.4s ease-in-out infinite; }
+
+/* accent-mixed helpers reused from JSX (Tailwind arbitrary values get ugly here) */
+.accent { color: var(--accent); }
+.accent-border { border-color: color-mix(in srgb, var(--accent) 35%, var(--color-line)); }
+.glow { box-shadow: 0 0 30px color-mix(in srgb, var(--accent) 18%, transparent); }
+.msg-axon { background: color-mix(in srgb, var(--accent) 10%, var(--color-panel));
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--color-line)); }
+.send-btn { background: linear-gradient(135deg, #eaffff, var(--accent));
+  box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 60%, transparent); }
+.feed-mask { -webkit-mask: linear-gradient(#000 88%, transparent); mask: linear-gradient(#000 88%, transparent); }
+.brain-bg { background: radial-gradient(1000px 700px at 60% 42%, #08121f, #04070d); }
+.side-bg { background: linear-gradient(90deg, rgba(6,12,22,.94), rgba(6,12,22,.5)); }
+
+/* faint grid + HUD corner brackets */
+.grid { position: fixed; inset: 0; pointer-events: none; opacity: .12;
+  background-image: linear-gradient(var(--color-line) 1px, transparent 1px), linear-gradient(90deg, var(--color-line) 1px, transparent 1px);
+  background-size: 44px 44px;
+  -webkit-mask: radial-gradient(circle at 50% 40%, #000 30%, transparent 78%);
+  mask: radial-gradient(circle at 50% 40%, #000 30%, transparent 78%); }
+.corner { position: fixed; width: 46px; height: 46px; border: 2px solid var(--accent); opacity: .5; }
+.corner.tl { top: 16px; left: 16px; border-right: 0; border-bottom: 0; }
+.corner.tr { top: 16px; right: 16px; border-left: 0; border-bottom: 0; }
+.corner.bl { bottom: 16px; left: 16px; border-right: 0; border-top: 0; }
+.corner.br { bottom: 16px; right: 16px; border-left: 0; border-top: 0; }
+
+/* ── arc reactor (animation + gradient heavy: custom CSS) ── */
+.reactor { position: relative; width: 300px; height: 300px; display: grid; place-items: center;
+  filter: drop-shadow(0 0 24px color-mix(in srgb, var(--accent) 45%, transparent)); }
+.reactor .ring, .reactor svg { position: absolute; inset: 0; margin: auto; }
+.reactor svg { width: 300px; height: 300px; }
+.ring { border-radius: 50%; }
+.r1 { width: 300px; height: 300px; border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+.r2 { width: 232px; height: 232px; border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); }
+.r3 { width: 150px; height: 150px; border: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  box-shadow: 0 0 22px color-mix(in srgb, var(--accent) 55%, transparent), inset 0 0 18px color-mix(in srgb, var(--accent) 30%, transparent); }
+.ticks  { animation: spin 26s linear infinite; }
+.ticks2 { animation: spin 40s linear infinite reverse; width: 232px !important; height: 232px !important; }
+.sweep  { animation: spin 6s linear infinite; }
+.core { width: 112px; height: 112px; border-radius: 50%; display: grid; place-items: center;
+  background: radial-gradient(circle at 50% 40%, #eaffff 0%, var(--accent) 42%, color-mix(in srgb, var(--accent) 20%, #02060c) 100%);
+  box-shadow: 0 0 40px color-mix(in srgb, var(--accent) 70%, transparent);
+  animation: breathe 3.2s ease-in-out infinite; }
+.app[data-state="thinking"] .core { animation-duration: 1s; }
+.app[data-state="speaking"] .core { animation-duration: .7s; }
+.app[data-state="listening"] .core { animation-duration: 1.6s; }

@@ -350,6 +350,37 @@ async def smart_home(args: dict[str, Any]) -> dict[str, Any]:
         return _ok(f"Couldn't trigger {action}: {e}")
 
 
+@tool("list_models", "List the AI models AXON can run on and say which is "
+      "active. Use when the user asks what models are available.", {})
+async def list_models(args: dict[str, Any]) -> dict[str, Any]:
+    import brain
+    cur = getattr(brain.ACTIVE_BRAIN, "model", config.MODEL)
+    parts = []
+    for _alias, (mid, desc) in config.AVAILABLE_MODELS.items():
+        parts.append(desc + (" — currently active" if mid == cur else ""))
+    return _ok("I can run on: " + "; ".join(parts) + ".")
+
+
+@tool("set_model", "Switch AXON to a different AI model. Accepts a short name "
+      "like 'opus', 'sonnet', 'haiku' or 'fable'. Applies on the next reply.",
+      {"model": str})
+async def set_model(args: dict[str, Any]) -> dict[str, Any]:
+    q = str(args.get("model", "")).strip().lower()
+    target = None
+    for alias, (mid, desc) in config.AVAILABLE_MODELS.items():
+        if q == alias or q == mid.lower() or alias in q or q in mid.lower():
+            target = (mid, desc)
+            break
+    if target is None:
+        return _ok(f"I don't have a model called '{q}'. I can switch to: "
+                   + ", ".join(config.AVAILABLE_MODELS) + ".")
+    import brain
+    if brain.ACTIVE_BRAIN is not None:
+        brain.ACTIVE_BRAIN.request_model(target[0])
+    name = target[1].split(" — ")[0]
+    return _ok(f"Switching to {name} on my next reply.")
+
+
 @tool("run_powershell", "Run an arbitrary PowerShell command and return its "
       "output. Use ONLY for things the other tools can't do.",
       {"command": str})
@@ -373,6 +404,7 @@ _SAFE_TOOLS = [
     (system_status, "system_status"), (type_text, "type_text"),
     (set_timer, "set_timer"), (set_reminder, "set_reminder"),
     (play_music, "play_music"), (smart_home, "smart_home"),
+    (list_models, "list_models"), (set_model, "set_model"),
 ]
 if config.ALLOW_RAW_SHELL:
     _SAFE_TOOLS.append((run_powershell, "run_powershell"))

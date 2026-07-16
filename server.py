@@ -18,6 +18,8 @@ from pathlib import Path
 
 import uvicorn
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import HTMLResponse, JSONResponse
 from starlette.routing import Route
 
@@ -66,7 +68,7 @@ async def index(request):
 
 
 async def state(request):
-    return JSONResponse(STATE)
+    return JSONResponse({**STATE, "model": brain.model})
 
 
 async def graph(request):
@@ -126,6 +128,11 @@ app = Starlette(
         Route("/graph", graph),
         Route("/say", say, methods=["POST"]),
     ],
+    middleware=[
+        # allow the Next.js dev/prod server to call this API directly
+        Middleware(CORSMiddleware, allow_origins=["*"],
+                   allow_methods=["*"], allow_headers=["*"]),
+    ],
     lifespan=lifespan,
 )
 
@@ -144,5 +151,8 @@ def _open_window(url: str) -> None:
 
 
 if __name__ == "__main__":
-    threading.Timer(1.4, lambda: _open_window(f"http://{HOST}:{PORT}")).start()
+    # AXON_API_ONLY=1 runs as a pure API (used with the Next.js front-end),
+    # so it won't pop the built-in HTML HUD.
+    if os.environ.get("AXON_API_ONLY") != "1":
+        threading.Timer(1.4, lambda: _open_window(f"http://{HOST}:{PORT}")).start()
     uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
