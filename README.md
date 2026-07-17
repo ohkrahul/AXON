@@ -50,30 +50,25 @@ flowchart LR
 The browser is the screen; a small local Python agent does the real work (a web
 page can't touch your files — by design). They talk over a local `/api` proxy.
 
-## 🚀 Run it (this PC)
+## 🚀 Install & run
 
-Double-click **`run_axon_web.bat`**, or:
+**The easy way — double-click.** Get AXON, then double-click **`AXON.bat`**.
+That's it: on first run it auto-installs everything it needs (Python, Node,
+Claude Code, dependencies) and launches; after that it just launches. Then
+**sign in** in the browser when prompted. No API key — it uses your Claude
+subscription.
 
+**Or one line** (installs to your user folder and launches):
 ```powershell
-# 1 — Python API (brain, PC control, files, voice)
-$env:AXON_API_ONLY="1"; .\.venv\Scripts\python.exe server.py
-# 2 — Next.js HUD
-cd web ; npm run dev
+irm https://raw.githubusercontent.com/ohkrahul/AXON/main/install.ps1 | iex
 ```
-Then open **http://localhost:3000** → sign in → go.
 
-## 💻 Set up on a new PC
+**Get the files** (if not using the one-liner): download the latest
+[**Release ZIP**](https://github.com/ohkrahul/AXON/releases/latest) and unzip, or
+`git clone https://github.com/ohkrahul/AXON.git`.
 
-```powershell
-git clone https://github.com/ohkrahul/AXON.git
-cd AXON
-.\setup.ps1          # installs Claude Code CLI + all dependencies
-```
-Launch AXON → the first-run screen guides you: **Open sign-in → `/login` in the
-browser → I've signed in.** That's it — it uses your Claude subscription (Team/Pro),
-**no API key**. Full guide in [`SETUP.md`](SETUP.md).
-
-> Requires Windows, Python 3.11+, Node 18+, a browser, and a Claude subscription.
+> Windows 10/11 + a Claude subscription (Team/Pro). Everything else is installed for you.
+> Advanced/manual setup is in [`SETUP.md`](SETUP.md).
 
 ## 🗣️ Try saying / typing
 

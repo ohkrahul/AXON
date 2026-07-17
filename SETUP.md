@@ -19,12 +19,18 @@ PC has the Claude CLI + a browser, AXON runs there.
 git clone https://github.com/ohkrahul/AXON.git
 cd AXON
 
-# 2. Run the setup script (installs Claude CLI, Python & web deps)
-.\setup.ps1
+# 2. Run the setup (installs Claude CLI, Python & web deps)
+#    Easiest: double-click setup.bat
+#    Or in PowerShell:
+powershell -ExecutionPolicy Bypass -File .\setup.ps1
 
 # 3. Log Claude in (opens your browser)
 claude          # then type:  /login   and sign in
 ```
+> **"setup.ps1 cannot be loaded / is not digitally signed"?** Windows blocks
+> downloaded scripts by default. Use `setup.bat` (double-click) or the
+> `-ExecutionPolicy Bypass` command above — both are safe and run it once.
+
 `git clone` not available? Just copy the AXON folder over (skip `.venv`,
 `node_modules`, and the `web\.next` — `setup.ps1` rebuilds them).
 

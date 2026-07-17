@@ -1,11 +1,9 @@
-# What JARVIS actually needs at runtime on this PC:
-claude-agent-sdk        # the Claude brain (uses your Claude subscription)
+# AXON runtime dependencies
+claude-agent-sdk        # the Claude brain (uses your subscription via Claude Code)
 pyttsx3                 # offline text-to-speech (falls back to Windows System.Speech)
+pycaw                   # exact volume control (Core Audio)
+starlette               # web API framework
+uvicorn                 # ASGI server
 
-# Everything else (UI, PC control, voice input) uses only the Python standard
-# library + built-in Windows components, so there are no other dependencies.
-#
-# NOTE: faster-whisper / sounddevice / openwakeword were evaluated for
-# microphone speech-to-text but are NOT used here — this PC's Smart App Control
-# blocks their native libraries, and its audio stack exposes no working capture
-# device. Voice input instead uses the OS recognizer (see voice_input.py).
+# Everything else (UI, file index, PC control, voice input, graph) uses only the
+# Python standard library + built-in Windows components — no extra packages.
