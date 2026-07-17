@@ -337,16 +337,19 @@ export default function Home() {
 
         {/* ── RIGHT ── */}
         <aside className="flex w-full shrink-0 flex-col bg-[rgba(6,11,20,.72)] md:w-[360px] lg:w-[400px]">
-          <div className="grid h-[240px] shrink-0 place-items-center">
-            <div style={{ position: "relative", width: 210, height: 210 }}>
-              <svg className="ticks" width="210" height="210" style={{ position: "absolute", inset: 0 }}>
-                <circle cx="105" cy="105" r="99" fill="none" stroke="var(--accent)" strokeWidth="6" strokeDasharray="1.5 8" opacity="0.6" />
+          <div style={{ height: 230, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ position: "relative", width: 200, height: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <svg className="ticks" width={200} height={200} viewBox="0 0 200 200" style={{ position: "absolute", top: 0, left: 0 }}>
+                <circle cx="100" cy="100" r="94" fill="none" stroke="var(--accent)" strokeWidth="6" strokeDasharray="1.5 8" opacity="0.6" />
               </svg>
-              <svg className="ticks2" width="210" height="210" style={{ position: "absolute", inset: 0 }}>
-                <circle cx="105" cy="105" r="82" fill="none" stroke="var(--accent)" strokeWidth="3" strokeDasharray="1 11" opacity="0.35" />
+              <svg className="ticks2" width={200} height={200} viewBox="0 0 200 200" style={{ position: "absolute", top: 0, left: 0 }}>
+                <circle cx="100" cy="100" r="78" fill="none" stroke="var(--accent)" strokeWidth="3" strokeDasharray="1 11" opacity="0.35" />
               </svg>
-              <div className="ringline" style={{ position: "absolute", inset: 34, opacity: 0.35 }} />
-              <div className="orb" style={{ position: "absolute", inset: 60 }} />
+              <div className="orb" style={{
+                width: 112, height: 112, borderRadius: "50%",
+                background: "radial-gradient(circle at 50% 38%, #eafcff 0%, var(--accent) 46%, #05283c 100%)",
+                boxShadow: "0 0 46px 4px var(--accent), inset 0 -8px 20px rgba(0,0,0,.45)",
+              }} />
             </div>
           </div>
           <div className="text-center">
