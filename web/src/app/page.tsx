@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 type Msg = { role: "user" | "axon"; text: string; t?: number };
 type Ix = { state: string; count: number };
-type Auth = { cli: boolean; logged_in: boolean; checked: boolean };
+type Auth = { cli: boolean; logged_in: boolean; checked: boolean; reason?: string; detail?: string };
 type St = { state: string; model: string; mic: boolean; history: Msg[]; index?: Ix; auth?: Auth };
 type GNode = { id: string; label: string; group: string; size: number; hub?: boolean; root?: boolean };
 type GLink = { source: string; target: string };
@@ -452,6 +452,13 @@ export default function Home() {
           <div className="text-center">
             <div className="accent text-[15px] font-bold tracking-[0.34em]">{BIG[st.state] || "STANDING BY"}</div>
             <div className="mt-1 text-[11px] text-dim">{SUB[st.state] || ""}</div>
+            {auth?.logged_in && auth?.reason && auth.reason !== "ok" && (
+              <div className="mt-1 text-[10px] text-[#ff8a3d]" title={auth.detail}>
+                {auth.reason === "rate_limited" ? "Claude may be rate-limited right now"
+                  : auth.reason === "timeout" ? "Claude was slow to respond just now"
+                  : "Claude had a hiccup — replies may be unreliable"}
+              </div>
+            )}
           </div>
           <div className="mt-3 flex justify-center gap-1.5 px-4">
             {TABS.map(([s, label]) => (

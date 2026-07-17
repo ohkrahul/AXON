@@ -46,8 +46,11 @@ STATE = {
 brain = Brain()
 _START = time.time()
 
-# auth / first-run state
-AUTH = {"cli": True, "logged_in": False, "checked": False}
+# auth / first-run state. "logged_in" really means "usable" — a rate limit,
+# slow/busy machine, or network blip is NOT the same as being signed out, so
+# those don't block the app; only a genuine not-signed-in result does.
+AUTH = {"cli": True, "logged_in": False, "checked": False, "reason": "", "detail": ""}
+_TRANSIENT_REASONS = ("rate_limited", "timeout", "error")
 _brain_started = False
 # The Claude SDK's subprocess connection must live in ONE long-lived task, so
 # the brain is connected and driven entirely inside _brain_worker() below.
@@ -120,7 +123,13 @@ async def signin(request):
 async def recheck(request):
     loop = asyncio.get_running_loop()
     AUTH["cli"] = preflight.cli_installed()
-    AUTH["logged_in"] = await loop.run_in_executor(None, preflight.is_logged_in) if AUTH["cli"] else False
+    if AUTH["cli"]:
+        result = await loop.run_in_executor(None, preflight.check_login)
+        AUTH["logged_in"] = result["ok"] or result["reason"] in _TRANSIENT_REASONS
+        AUTH["reason"], AUTH["detail"] = result["reason"], result["detail"]
+    else:
+        AUTH["logged_in"] = False
+        AUTH["reason"], AUTH["detail"] = "no_cli", ""
     AUTH["checked"] = True
     if AUTH["logged_in"]:
         _login_ready.set()
@@ -226,9 +235,19 @@ async def lifespan(app):
 
     def _auth_boot() -> None:       # check sign-in off the event loop
         AUTH["cli"] = preflight.cli_installed()
-        AUTH["logged_in"] = preflight.is_logged_in() if AUTH["cli"] else False
-        AUTH["checked"] = True
-        if AUTH["logged_in"]:
+        if not AUTH["cli"]:
+            AUTH.update(logged_in=False, checked=True, reason="no_cli", detail="")
+            return
+        result = preflight.check_login()
+        if not result["ok"] and result["reason"] in _TRANSIENT_REASONS:
+            # one retry — smooths over a slow/busy machine or a momentary blip
+            # (e.g. this thread races the file-index build for CPU/disk) rather
+            # than reporting "not signed in" for something that isn't that.
+            time.sleep(5)
+            result = preflight.check_login()
+        usable = result["ok"] or result["reason"] in _TRANSIENT_REASONS
+        AUTH.update(logged_in=usable, checked=True, reason=result["reason"], detail=result["detail"])
+        if usable:
             loop.call_soon_threadsafe(_login_ready.set)
 
     threading.Thread(target=_auth_boot, daemon=True).start()
