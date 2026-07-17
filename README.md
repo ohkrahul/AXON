@@ -131,4 +131,4 @@ Click **🎧 wake word** in the HUD to go hands-free — say **"Axon"** then you
 - Risky actions (locking the PC, running PowerShell, rescanning the whole index) get a
   spoken confirmation first — enforced by AXON's persona, not a hard technical gate.
 
-<p align="center"><sub>Built with Claude · Graphify-Labs</sub></p>
+<p align="center"><sub>Created by Rahul Sahu · powered by Claude · Graphify-Labs</sub></p>

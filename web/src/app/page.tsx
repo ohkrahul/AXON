@@ -30,6 +30,20 @@ const GC: Record<string, string> = {
 };
 const colorOf = (g: string) => GC[g] || "#64748b";
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
+
+// Common speech-recognition mishearings of "Axon" — matching only the exact
+// word made wake-word mode miss constantly. Longest/most-specific first so a
+// phrase like "exxon" doesn't get cut short by a shorter false alias.
+const WAKE_ALIASES = ["axon", "exxon", "aksen", "akson", "axen", "axan", "axion", "ashon"];
+function findWake(text: string): { idx: number; len: number } | null {
+  const low = text.toLowerCase();
+  let best: { idx: number; len: number } | null = null;
+  for (const alias of WAKE_ALIASES) {
+    const m = new RegExp(`\\b${alias}\\b`, "i").exec(low);
+    if (m && (best === null || m.index < best.idx)) best = { idx: m.index, len: alias.length };
+  }
+  return best;
+}
 const clock = (s = 0) => [Math.floor(s / 3600), Math.floor((s % 3600) / 60), s % 60].map((x) => String(x).padStart(2, "0")).join(":");
 
 export default function Home() {
@@ -48,6 +62,7 @@ export default function Home() {
   const recogRef = useRef<any>(null);
   const wakeRef = useRef<any>(null);
   const wakeModeRef = useRef(false);
+  const armedUntilRef = useRef(0);   // after a bare "Axon", accept the next utterance as the command
   const prevAxonCount = useRef(0);
 
   const feedRef = useRef<HTMLDivElement>(null);
@@ -146,14 +161,17 @@ export default function Home() {
     try { r.start(); } catch {}
   };
 
-  // hands-free "Hey Axon" — always listening; only sends what follows the
-  // wake word, so ambient conversation without it is ignored. Auto-restarts
-  // itself since browsers stop continuous recognition after a silence gap.
+  // hands-free "Hey Axon" — always listening; only acts on speech that
+  // contains the wake word (or a close mishearing of it), so ambient
+  // conversation is ignored. If you just say "Axon" and pause, the NEXT
+  // utterance within a few seconds is taken as the command even though it
+  // won't contain the wake word itself. Auto-restarts itself since browsers
+  // stop continuous recognition after a silence gap.
   const startWakeListening = () => {
     const SR = getSR();
     if (!SR) { alert("Voice input needs Chrome or Edge (Web Speech API not available here)."); setWakeMode(false); return; }
     const r = new SR();
-    r.lang = voiceLang; r.interimResults = false; r.continuous = true; r.maxAlternatives = 1;
+    r.lang = voiceLang; r.interimResults = true; r.continuous = true; r.maxAlternatives = 1;
     r.onstart = () => setListening(true);
     r.onend = () => {
       setListening(false);
@@ -167,14 +185,24 @@ export default function Home() {
       // other errors (no-speech/network) just let onend restart it
     };
     r.onresult = (e: any) => {
+      const now = Date.now();
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const res = e.results[i];
-        if (!res.isFinal) continue;
+        if (!res.isFinal) { setText(res[0].transcript); continue; }   // live "hearing…" preview
         const transcript = res[0].transcript.trim();
-        const idx = transcript.toLowerCase().indexOf("axon");
-        if (idx === -1) continue;                    // no wake word — ignore
-        const command = transcript.slice(idx + 4).replace(/^[,.:\s]+/, "").trim();
-        if (command) post(command);
+        const hit = findWake(transcript);
+        if (hit) {
+          const command = transcript.slice(hit.idx + hit.len).replace(/^[,.:\s]+/, "").trim();
+          setText("");
+          if (command) { post(command); armedUntilRef.current = 0; }
+          else { armedUntilRef.current = now + 6000; }   // "Axon" alone — wait for the follow-up
+        } else if (armedUntilRef.current && now <= armedUntilRef.current && transcript) {
+          setText("");
+          post(transcript);
+          armedUntilRef.current = 0;
+        } else {
+          setText("");   // ambient speech with no wake word — clear the preview, ignore it
+        }
       }
     };
     wakeRef.current = r;
