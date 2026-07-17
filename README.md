@@ -1,128 +1,116 @@
-# AXON — AI Assistant + Second Brain (powered by Claude)
+<p align="center">
+  <img src="docs/hero.svg" alt="AXON — Second Brain System" width="100%">
+</p>
 
-An Iron-Man-style desktop assistant with a glowing sci-fi HUD, powered by
-**Claude** via the Claude Agent SDK (using your Claude subscription — no API key).
-Give it a command; it thinks, **controls your PC**, and **speaks back**. It also
-visualises a linked notes folder as an interactive **"second brain" graph**.
+<p align="center">
+  <img src="https://img.shields.io/badge/brain-Claude-8A63D2" alt="Claude">
+  <img src="https://img.shields.io/badge/UI-Next.js%2016-000000" alt="Next.js 16">
+  <img src="https://img.shields.io/badge/agent-Python%203.14-3776AB" alt="Python 3.14">
+  <img src="https://img.shields.io/badge/platform-Windows-0078D6" alt="Windows">
+  <img src="https://img.shields.io/badge/auth-browser%20login-21d4fd" alt="Browser login">
+  <img src="https://img.shields.io/badge/API%20key-not%20needed-2bd576" alt="No API key">
+</p>
 
-Part of **Graphify-Labs**. (Originally prototyped as "Jarvis"; renamed AXON — an
-axon is the wire between neurons, i.e. the edges between nodes in a graph.)
+# AXON — AI Assistant + Second Brain
 
----
-
-## ✅ What works right now (no microphone required)
-
-Type into the HUD → Claude thinks → it acts on your PC → it talks back.
-
-- **Brain:** Claude (`claude-fable-5` by default) via the Agent SDK + your subscription
-- **Voice output:** offline Windows text-to-speech
-- **Spoken startup greeting** (toggle with `AXON_GREETING=0`)
-- **Sci-fi HUD:** arc-reactor core that glows 🔵 idle · 🟢 listening · 🟠 thinking · 🟣 speaking
-- **Second-brain graph:** click **◧ Brain** to explore your notes as a force-directed
-  network (search, top hubs, colour-coded filters, click a node to trace its links)
-- **PC control:**
-  - open apps · open URLs · web search
-  - volume up/down/mute **and set an exact %**
-  - media play/pause/next/prev · **play/search Spotify**
-  - **type text into any focused window**
-  - **timers & reminders** (announced aloud)
-  - screenshot · lock PC · time/battery status
-  - **find & open files/folders** — "find my resume", "open the Downloads folder",
-    "what's in Documents" (search uses the Windows index; open/read only, never deletes)
-  - **smart-home** via webhooks (configure in `config.py`)
-  - **switch its own AI model** on command — "what models do you have", "switch to opus"
-- **Safety:** Claude is restricted to the curated tools above (`permission_mode="dontAsk"`).
-  Raw PowerShell is off unless `AXON_ALLOW_SHELL=1`.
-
-## 🎤 Voice input — needs a microphone
-
-Hands-free *"Hey Axon"* is **built and ready** (`voice_input.py`) but **inactive on
-this PC: no microphone is connected** (only "Stereo Mix" is active). Connect a mic,
-set it as the Windows default recording device, run `python check_mic.py`, then
-launch normally — it auto-detects and goes live. It uses the OS speech recognizer
-(Whisper is blocked by this PC's Smart App Control).
+An Iron-Man-style desktop assistant with a sci-fi HUD, powered by **Claude**.
+Talk (or type) to it — it **thinks**, **controls your PC**, **reads any file on any
+drive**, and renders everything you own as a **living knowledge graph**. Runs on
+your **Claude subscription** via a one-time browser login — **no API key, no extra cost.**
 
 ---
 
-## Run it
+## ✨ What it does
 
-AXON is a **Next.js front-end + Python back-end**. The Python API holds the
-brain/PC-control/voice; the Next.js app (React + Tailwind) is the HUD and calls
-the API through a `/api` proxy.
+- 🧠 **Claude brain** — one persistent conversation, restricted to safe tools
+- 🖥️ **Controls your PC** — open apps, web search, exact volume %, media, timers &
+  reminders, type into any window, screenshots, lock, Spotify, smart-home webhooks
+- 🗂️ **Knows your whole PC** — indexes every file & folder across all drives
+  (~half a million here); find & open anything, or have it read a file and summarise
+- 🕸️ **Second-brain graph** — interactive force-graph of your files: zoom, pan,
+  click a node → AXON tells you about it
+- 🔊 **Talks back** — offline Windows text-to-speech; **"Hey Axon"** wake word ready
+  when a mic is present
+- 🔀 **Switch models by voice** — "what models do you have", "switch to opus"
+- 🎛️ **Sci-fi HUD** — arc-reactor, live status, top-hub bar-charts, timestamped
+  transcript, `LIVE INDEX` counter
 
-**Next.js + Python combo (recommended):** double-click **`run_axon_web.bat`**
-(starts both, opens `http://localhost:3000`), or manually:
+## 🧩 Architecture
+
+```mermaid
+flowchart LR
+  UI["Browser HUD<br/>Next.js + Tailwind"] -->|/api proxy| API["Python API<br/>Starlette + uvicorn"]
+  API --> BR["Claude<br/>Agent SDK · subscription"]
+  API --> PC["PC tools<br/>apps · volume · files"]
+  API --> IX["Whole-PC index<br/>files + folders"]
+  API --> GR["Graph builder<br/>/graph"]
+  API --> V["Voice<br/>TTS · wake word"]
+```
+
+The browser is the screen; a small local Python agent does the real work (a web
+page can't touch your files — by design). They talk over a local `/api` proxy.
+
+## 🚀 Run it (this PC)
+
+Double-click **`run_axon_web.bat`**, or:
+
 ```powershell
-# terminal 1 — Python API
+# 1 — Python API (brain, PC control, files, voice)
 $env:AXON_API_ONLY="1"; .\.venv\Scripts\python.exe server.py
-# terminal 2 — Next.js HUD
+# 2 — Next.js HUD
 cd web ; npm run dev
 ```
+Then open **http://localhost:3000** → sign in → go.
 
-**Built-in HUD (no Node, single process):**
-```powershell
-.\.venv\Scripts\python.exe server.py        # serves webui.html itself
-```
-
-Other front-ends:
-```powershell
-.\.venv\Scripts\python.exe main.py          # lightweight tkinter orb
-.\.venv\Scripts\python.exe main_text.py     # console only
-```
-
-Then click **▣ Brain** (top-right) for the second-brain graph.
-
-Try: `open notepad` · `set volume to 30%` · `play lo-fi beats on spotify` ·
-`set a 5 minute timer` · `remind me in 10 minutes to stretch` ·
-`search the web for the weather` · `take a screenshot`.
-
-## The second brain
-
-Drop markdown notes in the **`notes/`** folder (auto-seeded with a starter set on
-first run). Link them with `[[Wiki Links]]`. Add `group: <name>` on a note's first
-lines to colour-code it. The graph reads them live via the `/graph` endpoint.
-Point it elsewhere with `AXON_NOTES=C:\path\to\your\vault`.
-
-## First-time setup (already done on this machine)
+## 💻 Set up on a new PC
 
 ```powershell
-py -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-npm install -g @anthropic-ai/claude-code   # the CLI the SDK drives
-claude        # run once and /login (if not already)
+git clone https://github.com/ohkrahul/AXON.git
+cd AXON
+.\setup.ps1          # installs Claude Code CLI + all dependencies
 ```
+Launch AXON → the first-run screen guides you: **Open sign-in → `/login` in the
+browser → I've signed in.** That's it — it uses your Claude subscription (Team/Pro),
+**no API key**. Full guide in [`SETUP.md`](SETUP.md).
 
-## Configuration — `config.py`
+> Requires Windows, Python 3.11+, Node 18+, a browser, and a Claude subscription.
+
+## 🗣️ Try saying / typing
+
+`open notepad` · `set volume to 30%` · `find my resume` · `open the Downloads folder` ·
+`what's in my Documents` · `read that config file and summarise it` ·
+`set a 5 minute timer` · `play lo-fi on spotify` · `switch to opus` · `clear`
+
+## ⚙️ Configuration — `config.py`
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `ASSISTANT_NAME` / `WAKE_WORD` | Axon / axon | Name + wake word |
-| `MODEL` | `claude-fable-5` | Claude model (`AXON_MODEL` to override) |
-| `PERSONA` | witty, concise | Personality / system prompt |
-| `SPEAK_GREETING` | `True` | Speak the intro on launch (`AXON_GREETING=0` off) |
+| `MODEL` | `claude-fable-5` | Model (`AXON_MODEL` to override) |
+| `AVAILABLE_MODELS` | fable/opus/sonnet/haiku | Switchable by voice |
+| `SPEAK_GREETING` | `True` | Speak the intro on launch |
 | `ALLOW_RAW_SHELL` | `False` | `AXON_ALLOW_SHELL=1` gives Claude raw PowerShell |
+| `GRAPH_ROOT` | `~` | Folder the graph maps (`AXON_GRAPH_ROOT`) |
 | `SMART_HOME_WEBHOOKS` | `{}` | Map actions → webhook URLs |
-| `NOTES_DIR` | `./notes` | Folder for the second-brain graph (`AXON_NOTES`) |
 
-## Files
+## 📁 Key files
 
 | File | Role |
 |---|---|
-| `server.py` | Python API + built-in HUD (`/state`, `/graph`, `/say`; CORS + `/api` for Next.js) |
-| `web/` | Next.js (React + Tailwind) front-end; proxies `/api/*` → Python |
-| `run_axon_web.bat` | Launch the Next.js + Python combo together |
-| `webui.html` | Built-in single-process HUD (no Node needed) |
-| `graph.py` | Parses the notes folder into a node/edge graph |
-| `brain.py` | Claude Agent SDK wrapper |
-| `pc_tools.py` | Curated PC-control tools Claude can call |
-| `mouth.py` | Text-to-speech |
-| `voice_input.py` | "Hey Axon" wake word + dictation (needs a mic) |
-| `ui.py` / `main.py` | tkinter orb (alternative UI) |
-| `main_text.py` | console version |
-| `check_mic.py` | Mic readiness check |
-| `config.py` | All settings |
+| `server.py` | Python API + auth/first-run + all endpoints |
+| `web/` | Next.js + Tailwind HUD (the sci-fi UI) |
+| `brain.py` | Claude Agent SDK wrapper (runtime model switching) |
+| `pc_tools.py` | Curated PC-control + file tools Claude can call |
+| `indexer.py` | Whole-PC file/folder catalog + ranked search |
+| `graph.py` | Builds the knowledge graph from a folder tree |
+| `mouth.py` · `voice_input.py` | Text-to-speech · "Hey Axon" wake word |
+| `preflight.py` | Detects Claude login, guides browser sign-in |
+| `setup.ps1` · `SETUP.md` | One-shot setup for a new PC |
 
-## Notes on this PC
-- No microphone → voice input inactive until one is connected.
-- Smart App Control blocks Whisper's native libs → OS recognizer used for STT.
-- Uses your Claude subscription via the logged-in `claude` CLI.
+## 🔒 Notes & limits
+- Restricted tools only (`permission_mode="dontAsk"`); raw shell is opt-in.
+- Uses your Claude subscription via Claude Code — **you can't** distribute it as a
+  public product where strangers use your login (Anthropic terms); that needs the API.
+- On locked-down PCs, Whisper STT is blocked by Smart App Control → the OS
+  recognizer is used instead.
+
+<p align="center"><sub>Built with Claude · Graphify-Labs</sub></p>
