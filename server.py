@@ -12,6 +12,7 @@ import asyncio
 import os
 import subprocess
 import threading
+import time
 import webbrowser
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -25,7 +26,9 @@ from starlette.routing import Route
 
 import config
 import graph as graph_mod
+import indexer
 import mouth
+import preflight
 import voice_input
 from brain import Brain
 
@@ -40,18 +43,42 @@ STATE = {
 }
 brain = Brain()
 _busy = asyncio.Lock()
+_START = time.time()
+
+# auth / first-run state
+AUTH = {"cli": True, "logged_in": False, "checked": False}
+_brain_started = False
+
+
+def _add(role: str, text: str) -> None:
+    STATE["history"].append({"role": role, "text": text, "t": int(time.time() - _START)})
+
+
+async def _ensure_brain() -> None:
+    """Start the Claude conversation once (after login)."""
+    global _brain_started
+    if _brain_started:
+        return
+    await brain.start()
+    _brain_started = True
+    if config.SPEAK_GREETING:
+        threading.Thread(target=_greet, daemon=True).start()
 
 
 async def _handle(text: str) -> None:
-    STATE["history"].append({"role": "user", "text": text})
+    if not _brain_started:
+        _add("user", text)
+        _add("axon", "I'm not signed in to Claude yet — please complete sign-in first.")
+        return
+    _add("user", text)
     STATE["state"] = "thinking"
     try:
         reply = await brain.ask(text)
     except Exception as e:  # noqa: BLE001
         STATE["state"] = "error"
-        STATE["history"].append({"role": "axon", "text": f"Error: {e}"})
+        _add("axon", f"Error: {e}")
         return
-    STATE["history"].append({"role": "axon", "text": reply})
+    _add("axon", reply)
     STATE["state"] = "speaking"
     await asyncio.get_running_loop().run_in_executor(None, mouth.speak, reply)
     STATE["state"] = "idle"
@@ -68,11 +95,58 @@ async def index(request):
 
 
 async def state(request):
-    return JSONResponse({**STATE, "model": brain.model})
+    ix = indexer.status()
+    return JSONResponse({**STATE, "model": brain.model,
+                         "index": {"state": ix.get("state"), "count": ix.get("count", 0)},
+                         "auth": AUTH,
+                         "uptime": int(time.time() - _START)})
+
+
+async def signin(request):
+    ok = preflight.launch_login()
+    return JSONResponse({"ok": ok})
+
+
+async def recheck(request):
+    loop = asyncio.get_running_loop()
+    AUTH["cli"] = preflight.cli_installed()
+    AUTH["logged_in"] = await loop.run_in_executor(None, preflight.is_logged_in) if AUTH["cli"] else False
+    AUTH["checked"] = True
+    if AUTH["logged_in"]:
+        await _ensure_brain()
+    return JSONResponse(AUTH)
 
 
 async def graph(request):
     return JSONResponse(graph_mod.build_graph())
+
+
+async def clear(request):
+    STATE["history"].clear()
+    return JSONResponse({"ok": True})
+
+
+async def find(request):
+    q = request.query_params.get("q", "")
+    try:
+        limit = int(request.query_params.get("limit", "25"))
+    except ValueError:
+        limit = 25
+    return JSONResponse({"results": indexer.search(q, limit) if q.strip() else [],
+                         "state": indexer.status().get("state")})
+
+
+async def open_path_ep(request):
+    data = await request.json()
+    p = str(data.get("path") or "")
+    ok = False
+    try:
+        if os.path.exists(p):
+            os.startfile(p)  # type: ignore[attr-defined]
+            ok = True
+    except Exception:  # noqa: BLE001
+        ok = False
+    return JSONResponse({"ok": ok})
 
 
 async def say(request):
@@ -104,7 +178,7 @@ def _voice_boot(loop: asyncio.AbstractEventLoop) -> None:
 
 
 def _greet() -> None:
-    STATE["history"].append({"role": "axon", "text": config.GREETING})
+    _add("axon", config.GREETING)
     STATE["state"] = "speaking"
     mouth.speak(config.GREETING)
     STATE["state"] = "idle"
@@ -112,11 +186,18 @@ def _greet() -> None:
 
 @asynccontextmanager
 async def lifespan(app):
-    await brain.start()
-    if config.SPEAK_GREETING:
-        threading.Thread(target=_greet, daemon=True).start()
-    threading.Thread(target=_voice_boot, args=(asyncio.get_running_loop(),),
-                     daemon=True).start()
+    loop = asyncio.get_running_loop()
+    indexer.load_or_build()        # load cached PC catalog, or build in background
+
+    def _auth_boot() -> None:       # check sign-in off the event loop
+        AUTH["cli"] = preflight.cli_installed()
+        AUTH["logged_in"] = preflight.is_logged_in() if AUTH["cli"] else False
+        AUTH["checked"] = True
+        if AUTH["logged_in"]:
+            asyncio.run_coroutine_threadsafe(_ensure_brain(), loop)
+
+    threading.Thread(target=_auth_boot, daemon=True).start()
+    threading.Thread(target=_voice_boot, args=(loop,), daemon=True).start()
     yield
     await brain.stop()
 
@@ -127,6 +208,11 @@ app = Starlette(
         Route("/state", state),
         Route("/graph", graph),
         Route("/say", say, methods=["POST"]),
+        Route("/clear", clear, methods=["POST"]),
+        Route("/find", find),
+        Route("/open", open_path_ep, methods=["POST"]),
+        Route("/signin", signin, methods=["POST"]),
+        Route("/recheck", recheck, methods=["POST"]),
     ],
     middleware=[
         # allow the Next.js dev/prod server to call this API directly

@@ -24,6 +24,7 @@ from typing import Any
 from claude_agent_sdk import tool, create_sdk_mcp_server
 
 import config
+import indexer
 import mouth
 
 user32 = ctypes.windll.user32
@@ -411,27 +412,77 @@ async def open_path(args: dict[str, Any]) -> dict[str, Any]:
     return _ok(f"Opening {os.path.basename(path.rstrip(os.sep)) or path}.")
 
 
-@tool("find_files", "Search the whole PC for files or folders by name (uses the "
-      "Windows index). Returns matching full paths.", {"query": str, "limit": int})
+_TEXT_EXT = {".txt", ".md", ".markdown", ".py", ".js", ".ts", ".tsx", ".jsx",
+             ".json", ".csv", ".log", ".html", ".htm", ".css", ".xml", ".yml",
+             ".yaml", ".ini", ".cfg", ".conf", ".toml", ".bat", ".ps1", ".sh",
+             ".sql", ".java", ".c", ".cpp", ".h", ".cs", ".go", ".rs", ".rb",
+             ".php", ".env", ".gitignore", ".tsv", ".rtf"}
+
+
+@tool("find_files", "Search the WHOLE PC (every drive, anywhere) for files or "
+      "folders by name. Returns matching full paths.", {"query": str, "limit": int})
 async def find_files(args: dict[str, Any]) -> dict[str, Any]:
     q = str(args.get("query", "")).strip()
     limit = int(args.get("limit") or 12)
     if not q:
         return _ok("What should I search for?")
     paths: list[str] = []
-    try:
-        r = subprocess.run(
-            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
-             "-File", _FS_SEARCH, "-Query", q, "-Limit", str(limit)],
-            capture_output=True, text=True, timeout=45)
-        paths = [ln.strip() for ln in (r.stdout or "").splitlines() if ln.strip()]
-    except Exception:  # noqa: BLE001
-        pass
-    if not paths:                       # index off/empty -> walk key folders
+    if indexer.ready():                       # full-PC catalog (all drives)
+        paths = indexer.search(q, limit)
+    if not paths:                             # fall back while catalog builds
+        try:
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                 "-File", _FS_SEARCH, "-Query", q, "-Limit", str(limit)],
+                capture_output=True, text=True, timeout=45)
+            paths = [ln.strip() for ln in (r.stdout or "").splitlines() if ln.strip()]
+        except Exception:  # noqa: BLE001
+            pass
+    if not paths:
         paths = _fallback_search(q, limit)
     if not paths:
-        return _ok(f"I couldn't find anything matching '{q}'.")
+        st = indexer.status()
+        extra = (f" I'm still indexing the PC ({st['count']:,} files so far)."
+                 if st["state"] == "building" else "")
+        return _ok(f"I couldn't find anything matching '{q}'.{extra}")
     return _ok(f"Found {len(paths)} match(es) for '{q}':\n" + "\n".join(paths[:limit]))
+
+
+@tool("read_file", "Read the text contents of a file so you can answer about it. "
+      "Give a full path (use find_files first if needed).",
+      {"path": str, "max_chars": int})
+async def read_file(args: dict[str, Any]) -> dict[str, Any]:
+    path = _resolve(str(args.get("path", "")))
+    if not os.path.isfile(path):
+        return _ok(f"That's not a file I can read: {path}")
+    mx = int(args.get("max_chars") or 6000)
+    ext = os.path.splitext(path)[1].lower()
+    try:
+        size = os.path.getsize(path)
+        if ext not in _TEXT_EXT:
+            return _ok(f"'{os.path.basename(path)}' is a {ext or 'binary'} file "
+                       f"({size:,} bytes); I can only read text-based files right now.")
+        with open(path, encoding="utf-8", errors="replace") as f:
+            content = f.read(mx + 1)
+        more = " …(truncated)" if len(content) > mx else ""
+        return _ok(f"{os.path.basename(path)} ({size:,} bytes):\n\n{content[:mx]}{more}")
+    except Exception as e:  # noqa: BLE001
+        return _ok(f"I couldn't read {path}: {e}")
+
+
+@tool("pc_index_status", "Report how much of the PC file catalog has been built.", {})
+async def pc_index_status(args: dict[str, Any]) -> dict[str, Any]:
+    st = indexer.status()
+    drives = ", ".join(st.get("drives") or []) or "detecting"
+    return _ok(f"File index: {st['state']}, {st['count']:,} files catalogued "
+               f"across {drives}.")
+
+
+@tool("reindex_pc", "Rebuild the whole-PC file catalog from scratch (runs in the "
+      "background).", {})
+async def reindex_pc(args: dict[str, Any]) -> dict[str, Any]:
+    indexer.rebuild(background=True)
+    return _ok("Re-scanning every drive now; it'll be ready shortly.")
 
 
 @tool("list_directory", "List what's inside a folder (known name or full path).",
@@ -507,6 +558,8 @@ _SAFE_TOOLS = [
     (play_music, "play_music"), (smart_home, "smart_home"),
     (open_folder, "open_folder"), (open_path, "open_path"),
     (find_files, "find_files"), (list_directory, "list_directory"),
+    (read_file, "read_file"), (pc_index_status, "pc_index_status"),
+    (reindex_pc, "reindex_pc"),
     (list_models, "list_models"), (set_model, "set_model"),
 ]
 if config.ALLOW_RAW_SHELL:

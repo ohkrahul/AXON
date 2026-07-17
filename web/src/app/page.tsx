@@ -2,141 +2,147 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-type Msg = { role: "user" | "axon"; text: string };
-type St = { state: string; model: string; mic: boolean; history: Msg[] };
-type GNode = { id: string; label: string; group: string; size: number; hub?: boolean };
+type Msg = { role: "user" | "axon"; text: string; t?: number };
+type Ix = { state: string; count: number };
+type Auth = { cli: boolean; logged_in: boolean; checked: boolean };
+type St = { state: string; model: string; mic: boolean; history: Msg[]; index?: Ix; auth?: Auth };
+type GNode = { id: string; label: string; group: string; size: number; hub?: boolean; root?: boolean };
 type GLink = { source: string; target: string };
 type Graph = {
-  title: string;
-  nodes: GNode[];
-  links: GLink[];
+  title: string; nodes: GNode[]; links: GLink[];
   groups: { name: string; count: number }[];
   hubs: { label: string; size: number }[];
   stats: { notes: number; connections: number };
 };
 
-const SUBS: Record<string, string> = {
-  idle: "standing by, sir",
-  listening: "listening, sir…",
-  thinking: "processing your request…",
-  speaking: "speaking…",
-  error: "something went wrong",
+const SUB: Record<string, string> = {
+  idle: "all systems online, sir", listening: "listening, sir…",
+  thinking: "processing your request…", speaking: "speaking…", error: "a fault occurred",
 };
+const BIG: Record<string, string> = {
+  idle: "STANDING BY", listening: "LISTENING", thinking: "THINKING", speaking: "SPEAKING", error: "ERROR",
+};
+const TABS: [string, string][] = [["idle", "IDLE"], ["listening", "LISTEN"], ["thinking", "THINK"], ["speaking", "SPEAK"]];
 const GC: Record<string, string> = {
-  // notes-vault groups
-  core: "#ff8a3d", project: "#b06cff", concept: "#ffd23f",
-  skill: "#21d4fd", tool: "#2bd576", note: "#6b7fa0",
-  // file-map categories
-  folder: "#ffb020", document: "#21d4fd", image: "#b06cff",
-  video: "#ff5470", audio: "#2bd576", code: "#ff8a3d",
-  archive: "#8b949e", file: "#6b7fa0",
+  core: "#8fe9ff", project: "#b06cff", concept: "#ffd23f", skill: "#21d4fd", tool: "#2bd576", note: "#6b7fa0",
+  folder: "#ffb020", document: "#3b82f6", image: "#22d3ee", video: "#ef4444", audio: "#2bd576",
+  code: "#f59e0b", archive: "#a855f7", file: "#64748b",
 };
-const colorOf = (g: string) => GC[g] || "#6b7fa0";
+const colorOf = (g: string) => GC[g] || "#64748b";
+const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
+const clock = (s = 0) => [Math.floor(s / 3600), Math.floor((s % 3600) / 60), s % 60].map((x) => String(x).padStart(2, "0")).join(":");
 
 export default function Home() {
   const [st, setSt] = useState<St>({ state: "idle", model: "", mic: false, history: [] });
   const [text, setText] = useState("");
-  const [brainOpen, setBrainOpen] = useState(false);
   const [graphData, setGraphData] = useState<Graph | null>(null);
   const [graphLoaded, setGraphLoaded] = useState(0);
   const [selNode, setSelNode] = useState<GNode | null>(null);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [results, setResults] = useState<string[]>([]);
+  const [uptime, setUptime] = useState(0);
+  const [rechecking, setRechecking] = useState(false);
 
   const feedRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<any>(null);
   const selRef = useRef<GNode | null>(null);
   const hiddenRef = useRef<Set<string>>(new Set());
+  const askRef = useRef<((n: GNode) => void) | null>(null);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let alive = true;
     const tick = async () => {
-      try {
-        const r = await fetch("/api/state", { cache: "no-store" });
-        const data = (await r.json()) as St;
-        if (alive) setSt(data);
-      } catch {}
+      try { const d = (await (await fetch("/api/state", { cache: "no-store" })).json()) as St; if (alive) setSt(d); } catch {}
     };
     tick();
     const id = setInterval(tick, 250);
     return () => { alive = false; clearInterval(id); };
   }, []);
-
-  useEffect(() => {
-    if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight;
-  }, [st.history.length]);
-
+  useEffect(() => { const id = setInterval(() => setUptime((u) => u + 1), 1000); return () => clearInterval(id); }, []);
+  useEffect(() => { if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight; }, [st.history.length]);
   useEffect(() => { selRef.current = selNode; }, [selNode]);
   useEffect(() => { hiddenRef.current = hidden; }, [hidden]);
 
-  const send = useCallback(async () => {
-    const t = text.trim();
-    if (!t) return;
-    setText("");
-    try {
-      await fetch("/api/say", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: t }),
-      });
-    } catch {}
-  }, [text]);
-
-  const openBrain = useCallback(async () => {
-    setBrainOpen(true);
-    if (!graphRef.current) {
-      const g = (await (await fetch("/api/graph")).json()) as Graph;
-      const byId: Record<string, any> = {};
-      (g.nodes as any[]).forEach((n) => (byId[n.id] = n));
-      (g as any).byId = byId;
-      graphRef.current = g;   // positions are (re)initialised in the render effect
-      setGraphData(g);
-      setGraphLoaded((x) => x + 1);
-    }
+  useEffect(() => {
+    (async () => {
+      try {
+        const g = (await (await fetch("/api/graph")).json()) as Graph;
+        const byId: Record<string, any> = {};
+        (g.nodes as any[]).forEach((n) => (byId[n.id] = n));
+        (g as any).byId = byId;
+        graphRef.current = g; setGraphData(g); setGraphLoaded((x) => x + 1);
+      } catch {}
+    })();
   }, []);
 
+  const post = (t: string) =>
+    fetch("/api/say", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: t }) }).catch(() => {});
+  const clearChat = useCallback(() => { fetch("/api/clear", { method: "POST" }).catch(() => {}); }, []);
+  const send = useCallback(() => {
+    const t = text.trim(); if (!t) return; setText("");
+    if (/^(clear|clear chat|clear history|reset chat)$/i.test(t)) { clearChat(); return; }
+    post(t);
+  }, [text, clearChat]);
+  const askAbout = useCallback((n: GNode) => {
+    if (n.root) return;
+    const isFolder = n.group === "folder";
+    post(isFolder
+      ? `In one or two sentences, what is the folder "${n.label}" for? Path: ${n.id}`
+      : `In one or two sentences, what is the file "${n.label}"? If it's text, read it and summarize. Path: ${n.id}`);
+  }, []);
+  useEffect(() => { askRef.current = askAbout; }, [askAbout]);
+
+  const signIn = () => { fetch("/api/signin", { method: "POST" }).catch(() => {}); };
+  const recheck = async () => {
+    setRechecking(true);
+    try { await fetch("/api/recheck", { method: "POST" }); } catch {}
+    setRechecking(false);
+  };
+  const openResult = (p: string) =>
+    fetch("/api/open", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: p }) }).catch(() => {});
+  const onSearch = (q: string) => {
+    const query = q.trim();
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    if (!query) { setResults([]); return; }
+    searchTimer.current = setTimeout(async () => {
+      try { const r = await (await fetch(`/api/find?q=${encodeURIComponent(query)}&limit=30`)).json(); setResults(r.results || []); } catch {}
+      if (graphData) { const hit = graphData.nodes.find((n) => n.label.toLowerCase().includes(query.toLowerCase())); if (hit) setSelNode(hit); }
+    }, 220);
+  };
+
+  // ── force graph ──
   useEffect(() => {
-    if (!brainOpen) return;
-    const G = graphRef.current;
-    const canvas = canvasRef.current;
-    if (!G || !canvas) return;
+    const G = graphRef.current, canvas = canvasRef.current, wrap = wrapRef.current;
+    if (!G || !canvas || !wrap) return;
     const ctx = canvas.getContext("2d")!;
     let cw = 0, ch = 0, dpr = 1;
     const resize = () => {
+      const rect = wrap.getBoundingClientRect();
       dpr = window.devicePixelRatio || 1;
-      cw = window.innerWidth; ch = window.innerHeight;
-      canvas.width = Math.floor(cw * dpr);
-      canvas.height = Math.floor(ch * dpr);
-      canvas.style.width = cw + "px";
-      canvas.style.height = ch + "px";
+      cw = Math.max(1, rect.width); ch = Math.max(1, rect.height);
+      canvas.width = Math.floor(cw * dpr); canvas.height = Math.floor(ch * dpr);
+      canvas.style.width = cw + "px"; canvas.style.height = ch + "px";
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
     resize();
-    window.addEventListener("resize", resize);
-
-    // (re)initialise node positions in a wide phyllotaxis disk every time the
-    // map opens — prevents the force sim from exploding out of view.
+    const ro = new ResizeObserver(resize); ro.observe(wrap);
     {
-      const N = G.nodes.length, R = 26 * Math.sqrt(N) + 60;
+      const N = G.nodes.length, R = 24 * Math.sqrt(N) + 50;
       G.nodes.forEach((n: any, i: number) => {
         const t = Math.sqrt((i + 0.5) / N), a = i * 2.399963;
-        n.x = cw / 2 + R * t * Math.cos(a);
-        n.y = ch / 2 + R * t * Math.sin(a);
-        n.vx = 0; n.vy = 0;
+        n.x = cw / 2 + R * t * Math.cos(a); n.y = ch / 2 + R * t * Math.sin(a); n.vx = 0; n.vy = 0;
       });
     }
-
-    let drag: any = null, hover: any = null, raf = 0, frame = 0;
-    let scale = 1, panX = 0, panY = 0, panning = false, lastX = 0, lastY = 0;
-    const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
+    let drag: any = null, downNode: any = null, moved = false, hover: any = null, raf = 0, frame = 0;
+    let scale = 1, panX = 0, panY = 0, panning = false, lastX = 0, lastY = 0, downX = 0, downY = 0;
     const vis = (n: any) => !hiddenRef.current.has(n.group);
-    const isNbr = (a: any, b: any) =>
-      G.links.some((l: GLink) => (l.source === a.id && l.target === b.id) || (l.target === a.id && l.source === b.id));
-
+    const isNbr = (a: any, b: any) => G.links.some((l: GLink) => (l.source === a.id && l.target === b.id) || (l.target === a.id && l.source === b.id));
     const step = () => {
-      const cx = cw / 2, cy = ch / 2;
-      const REP = 1200, SPRING = 0.035, LEN = 54, DAMP = 0.9, MAXV = 28, MIND2 = 120;
-      for (const n of G.nodes) { n.fx = (cx - n.x) * 0.006; n.fy = (cy - n.y) * 0.006; }
+      const cx = cw / 2, cy = ch / 2, REP = 1600, SPRING = 0.033, LEN = 60, DAMP = 0.9, MAXV = 26, MIND2 = 120;
+      for (const n of G.nodes) { n.fx = (cx - n.x) * 0.0045; n.fy = (cy - n.y) * 0.0045; }
       for (let i = 0; i < G.nodes.length; i++)
         for (let j = i + 1; j < G.nodes.length; j++) {
           const a = G.nodes[i], b = G.nodes[j];
@@ -146,8 +152,7 @@ export default function Home() {
           a.fx += ux * f; a.fy += uy * f; b.fx -= ux * f; b.fy -= uy * f;
         }
       for (const l of G.links as GLink[]) {
-        const a = G.byId[l.source], b = G.byId[l.target];
-        if (!a || !b) continue;
+        const a = G.byId[l.source], b = G.byId[l.target]; if (!a || !b) continue;
         const dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 1, f = SPRING * (d - LEN);
         const ux = dx / d, uy = dy / d; a.fx += ux * f; a.fy += uy * f; b.fx -= ux * f; b.fy -= uy * f;
       }
@@ -159,79 +164,69 @@ export default function Home() {
         n.x += n.vx; n.y += n.vy;
       }
     };
+    const fit = () => {
+      let a1 = Infinity, a2 = -Infinity, b1 = Infinity, b2 = -Infinity;
+      for (const n of G.nodes) { if (n.x < a1) a1 = n.x; if (n.x > a2) a2 = n.x; if (n.y < b1) b1 = n.y; if (n.y > b2) b2 = n.y; }
+      if (!isFinite(a1)) return;
+      const w = a2 - a1 || 1, h = b2 - b1 || 1, pad = 70;
+      const s = clamp(Math.min((cw - 2 * pad) / w, (ch - 2 * pad) / h), 0.12, 2.4);
+      if (!isFinite(s) || s <= 0) return;
+      scale = s; panX = cw / 2 - ((a1 + a2) / 2) * scale; panY = ch / 2 - ((b1 + b2) / 2) * scale;
+    };
     const draw = () => {
       const sel = selRef.current as any;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, cw, ch);
-      ctx.translate(panX, panY);
-      ctx.scale(scale, scale);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, cw, ch);
+      ctx.translate(panX, panY); ctx.scale(scale, scale);
       for (const l of G.links as GLink[]) {
-        const a = G.byId[l.source], b = G.byId[l.target];
-        if (!vis(a) || !vis(b)) continue;
+        const a = G.byId[l.source], b = G.byId[l.target]; if (!vis(a) || !vis(b)) continue;
         const hot = sel && (l.source === sel.id || l.target === sel.id);
-        ctx.strokeStyle = hot ? "rgba(130,205,255,.75)" : "rgba(80,140,200,.14)";
-        ctx.lineWidth = hot ? 1.6 : 0.8;
+        ctx.strokeStyle = hot ? "rgba(140,233,255,.75)" : "rgba(90,150,210,.12)"; ctx.lineWidth = hot ? 1.5 : 0.7;
         ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
       }
       for (const n of G.nodes) {
         if (!vis(n)) continue;
-        const r = 6 + n.size * 1.7;
+        const r = n.root ? 13 : 5 + n.size * 1.6;
         const dim = sel && sel.id !== n.id && !isNbr(sel, n);
-        ctx.globalAlpha = dim ? 0.22 : 1; ctx.fillStyle = colorOf(n.group);
-        ctx.shadowColor = colorOf(n.group);
-        ctx.shadowBlur = (n === hover || (sel && sel.id === n.id)) ? 20 : (n.hub ? 8 : 0);
+        if (n.root) {                       // AXON centre ring
+          ctx.globalAlpha = 1; ctx.strokeStyle = "rgba(140,233,255,.5)"; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.arc(n.x, n.y, r + 26, 0, 7); ctx.stroke();
+        }
+        ctx.globalAlpha = dim ? 0.2 : 1; ctx.fillStyle = n.root ? "#dffcff" : colorOf(n.group);
+        ctx.shadowColor = n.root ? "#8fe9ff" : colorOf(n.group);
+        ctx.shadowBlur = n.root ? 26 : (n === hover || (sel && sel.id === n.id)) ? 20 : (n.hub ? 8 : 0);
         ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
         if (n === hover || (sel && sel.id === n.id) || n.hub) {
-          ctx.globalAlpha = dim ? 0.3 : 0.95; ctx.fillStyle = "#dcebff";
-          ctx.font = "11px Segoe UI"; ctx.textAlign = "center"; ctx.fillText(n.label, n.x, n.y - r - 6);
+          ctx.globalAlpha = dim ? 0.3 : 0.95; ctx.fillStyle = "#dfeeff";
+          ctx.font = `${n.root ? "bold 13" : "11"}px Segoe UI`; ctx.textAlign = "center";
+          ctx.fillText(n.label, n.x, n.y - r - 7);
         }
         ctx.globalAlpha = 1;
       }
     };
-    const fit = () => {
-      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-      for (const n of G.nodes) {
-        if (n.x < minX) minX = n.x; if (n.x > maxX) maxX = n.x;
-        if (n.y < minY) minY = n.y; if (n.y > maxY) maxY = n.y;
-      }
-      if (!isFinite(minX) || !isFinite(maxX)) return;
-      const w = maxX - minX || 1, h = maxY - minY || 1, pad = 90;
-      const s = clamp(Math.min((cw - 2 * pad) / w, (ch - 2 * pad) / h), 0.12, 1.6);
-      if (!isFinite(s) || s <= 0) return;
-      scale = s;
-      panX = cw / 2 - ((minX + maxX) / 2) * scale;
-      panY = ch / 2 - ((minY + maxY) / 2) * scale;
-    };
-    const loop = () => {
-      frame++; step();
-      if (frame < 170 && frame % 12 === 0) fit();   // keep it framed while it settles
-      draw();
-      raf = requestAnimationFrame(loop);
-    };
+    const loop = () => { frame++; step(); if (frame < 170 && frame % 12 === 0) fit(); draw(); raf = requestAnimationFrame(loop); };
     loop();
-
     const at = (sx: number, sy: number) => {
       const wx = (sx - panX) / scale, wy = (sy - panY) / scale;
       for (let i = G.nodes.length - 1; i >= 0; i--) {
         const n = G.nodes[i]; if (!vis(n)) continue;
-        const r = 6 + n.size * 1.7;
+        const r = n.root ? 13 : 5 + n.size * 1.6;
         if ((wx - n.x) ** 2 + (wy - n.y) ** 2 <= (r + 6 / scale) ** 2) return n;
       }
       return null;
     };
     const onMove = (e: MouseEvent) => {
       const b = canvas.getBoundingClientRect(), sx = e.clientX - b.left, sy = e.clientY - b.top;
-      if (drag) { drag.x = (sx - panX) / scale; drag.y = (sy - panY) / scale; drag.vx = 0; drag.vy = 0; }
+      if (drag) { drag.x = (sx - panX) / scale; drag.y = (sy - panY) / scale; drag.vx = 0; drag.vy = 0; if ((sx - downX) ** 2 + (sy - downY) ** 2 > 20) moved = true; }
       else if (panning) { panX += sx - lastX; panY += sy - lastY; lastX = sx; lastY = sy; }
       else { hover = at(sx, sy); canvas.style.cursor = hover ? "pointer" : "grab"; }
     };
     const onDown = (e: MouseEvent) => {
       const b = canvas.getBoundingClientRect(), sx = e.clientX - b.left, sy = e.clientY - b.top;
-      const n = at(sx, sy);
-      if (n) { drag = n; setSelNode(n); }
+      const n = at(sx, sy); downX = sx; downY = sy; moved = false;
+      if (n) { drag = n; downNode = n; setSelNode(n); }
       else { panning = true; lastX = sx; lastY = sy; setSelNode(null); canvas.style.cursor = "grabbing"; }
     };
-    const onUp = () => { drag = null; panning = false; };
+    const onUp = () => { if (downNode && !moved) askRef.current?.(downNode); drag = null; downNode = null; panning = false; };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const b = canvas.getBoundingClientRect(), mx = e.clientX - b.left, my = e.clientY - b.top;
@@ -239,134 +234,199 @@ export default function Home() {
       scale = clamp(scale * (e.deltaY < 0 ? 1.12 : 0.89), 0.08, 5);
       panX = mx - wx * scale; panY = my - wy * scale;
     };
-    canvas.addEventListener("mousemove", onMove);
-    canvas.addEventListener("mousedown", onDown);
-    canvas.addEventListener("wheel", onWheel, { passive: false });
-    window.addEventListener("mouseup", onUp);
+    canvas.addEventListener("mousemove", onMove); canvas.addEventListener("mousedown", onDown);
+    canvas.addEventListener("wheel", onWheel, { passive: false }); window.addEventListener("mouseup", onUp);
     return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener("resize", resize);
-      window.removeEventListener("mouseup", onUp);
-      canvas.removeEventListener("mousemove", onMove);
-      canvas.removeEventListener("mousedown", onDown);
-      canvas.removeEventListener("wheel", onWheel);
+      cancelAnimationFrame(raf); ro.disconnect(); window.removeEventListener("mouseup", onUp);
+      canvas.removeEventListener("mousemove", onMove); canvas.removeEventListener("mousedown", onDown); canvas.removeEventListener("wheel", onWheel);
     };
-  }, [brainOpen, graphLoaded]);
+  }, [graphLoaded]);
 
-  const toggleGroup = (g: string) =>
-    setHidden((h) => { const n = new Set(h); if (n.has(g)) n.delete(g); else n.add(g); return n; });
-
-  const onSearch = (q: string) => {
-    q = q.trim().toLowerCase();
-    if (!q || !graphData) { setSelNode(null); return; }
-    const hit = graphData.nodes.find((n) => n.label.toLowerCase().includes(q));
-    if (hit) setSelNode(hit);
-  };
-
-  const neighbors = (n: GNode) => {
-    if (!graphData) return [];
-    return graphData.links
-      .filter((l) => l.source === n.id || l.target === n.id)
-      .map((l) => (l.source === n.id ? l.target : l.source))
-      .map((id) => graphData.nodes.find((x) => x.id === id)?.label || id);
-  };
+  const toggleGroup = (g: string) => setHidden((h) => { const n = new Set(h); if (n.has(g)) n.delete(g); else n.add(g); return n; });
+  const neighbors = (n: GNode) =>
+    !graphData ? [] : graphData.links.filter((l) => l.source === n.id || l.target === n.id)
+      .map((l) => (l.source === n.id ? l.target : l.source)).map((id) => graphData.nodes.find((x) => x.id === id)?.label || id);
+  const maxHub = Math.max(1, ...(graphData?.hubs.map((h) => h.size) || [1]));
+  const auth = st.auth;
+  const phase = !auth ? "loading" : !auth.checked ? "checking" : !auth.cli ? "nocli" : !auth.logged_in ? "login" : "ready";
 
   return (
-    <main className="app relative flex h-screen flex-col items-center" data-state={st.state}>
-      <div className="grid" />
-      <div className="corner tl" /><div className="corner tr" />
-      <div className="corner bl" /><div className="corner br" />
-
-      <header className="mt-6 text-center text-xs uppercase tracking-[0.42em] text-dim">
-        ◆ <b className="accent">A.X.O.N.</b> • Second Brain ◆
-      </header>
-
-      <div className="reactor my-3">
-        <svg className="ticks" viewBox="0 0 300 300"><circle cx="150" cy="150" r="140" fill="none" stroke="var(--accent)" strokeWidth="8" strokeDasharray="1.5 9" opacity=".55" /></svg>
-        <svg className="ticks2" viewBox="0 0 232 232"><circle cx="116" cy="116" r="108" fill="none" stroke="var(--accent)" strokeWidth="5" strokeDasharray="1 12" opacity=".4" /></svg>
-        <svg className="sweep" viewBox="0 0 300 300"><circle cx="150" cy="150" r="118" fill="none" stroke="var(--amber)" strokeWidth="3" strokeDasharray="150 600" strokeLinecap="round" opacity=".85" /></svg>
-        <div className="ring r1" /><div className="ring r2" /><div className="ring r3" />
-        <div className="core"><span className="text-[13px] font-extrabold tracking-[0.12em] text-[#02121a]">AXON</span></div>
-      </div>
-
-      <div className="text-center">
-        <div className="accent text-[15px] font-bold tracking-[0.34em]">
-          <span className="dot mr-2 inline-block h-2 w-2 rounded-full align-middle bg-[var(--accent)] shadow-[0_0_10px_var(--accent)]" />
-          {st.state.toUpperCase()}
+    <main className="app flex h-screen w-screen flex-col overflow-hidden" data-state={st.state}>
+      {/* ── TOP BAR ── */}
+      <div className="flex h-14 shrink-0 items-center justify-between border-b border-line px-5">
+        <div className="flex items-center gap-3">
+          <span className="accent text-lg">◆</span>
+          <div>
+            <div className="accent text-sm font-semibold tracking-[0.34em]">A·X·O·N</div>
+            <div className="text-[9px] tracking-[0.3em] text-dim">SECOND BRAIN SYSTEM</div>
+          </div>
         </div>
-        <div className="mt-1 min-h-4 text-xs text-dim">{SUBS[st.state] || ""}</div>
+        <div className="flex items-center gap-7 text-right">
+          {[["NODES", graphData ? graphData.stats.notes.toLocaleString() : "—"],
+            ["LINKS", graphData ? graphData.stats.connections.toLocaleString() : "—"],
+            ["UPTIME", clock(uptime)]].map(([l, v]) => (
+            <div key={l}><div className="text-[9px] tracking-[0.25em] text-dim">{l}</div><div className="accent text-sm font-semibold tabular-nums">{v}</div></div>
+          ))}
+          <div><div className="text-[9px] tracking-[0.25em] text-dim">STATUS</div><div className="text-sm font-semibold text-[#2bd576]">NOMINAL</div></div>
+        </div>
       </div>
 
-      <div ref={feedRef} className="feed-mask my-3.5 flex w-[min(760px,92vw)] flex-1 flex-col gap-2.5 overflow-y-auto px-1.5">
-        {st.history.map((m, i) => (
-          <div
-            key={i}
-            className={
-              "anim-rise max-w-[80%] rounded-xl px-3.5 py-2.5 text-sm leading-relaxed " +
-              (m.role === "user"
-                ? "self-end border border-[#1d3f63] bg-[#0e2036] text-[#dcecff]"
-                : "msg-axon self-start text-ink")
-            }
-          >
-            <div className="mb-1 text-[10px] uppercase tracking-[0.18em] text-dim">{m.role === "user" ? "You" : "Axon"}</div>
-            {m.text}
+      <div className="flex min-h-0 flex-1">
+        {/* ── LEFT ── */}
+        <aside className="side-bg flex w-[260px] shrink-0 flex-col overflow-y-auto px-4 py-4">
+          <div className="mb-3 flex items-baseline justify-between">
+            <div className="accent text-xs font-semibold tracking-[0.14em]">▪ KNOWLEDGE MAP</div>
+            <div className="text-[10px] text-dim">{graphData?.stats.notes ?? 0} nodes</div>
           </div>
-        ))}
-      </div>
+          <input onChange={(e) => onSearch(e.target.value)} placeholder="⌕  Search the brain…"
+            className="w-full rounded-md border border-line bg-[#0b1424] px-3 py-2 text-[12px] text-ink outline-none focus:border-[color:var(--accent)]" />
 
-      <div className="glow mb-5 flex w-[min(760px,92vw)] items-center gap-2.5 rounded-2xl border accent-border bg-panel py-2 pl-4 pr-2">
-        <span className="accent whitespace-nowrap rounded-full border accent-border px-2.5 py-1 text-[11px] uppercase tracking-wider">
-          {(st.model || "model").replace(/^claude-/, "").toUpperCase()}
-        </span>
-        <input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && send()}
-          placeholder="Speak to Axon… (type a command)"
-          autoFocus
-          className="flex-1 bg-transparent text-[15px] text-ink outline-none placeholder:text-dim"
-        />
-        <button onClick={send} title="Send" className="send-btn grid h-[42px] w-[42px] place-items-center rounded-[10px] text-lg text-[#04121a] transition active:scale-90">➤</button>
-        <span className="whitespace-nowrap text-[11px] tracking-wide text-dim">{st.mic ? "🎙 voice on" : "⌨ type to talk"}</span>
-      </div>
-
-      <button onClick={openBrain} className="accent accent-border fixed right-[78px] top-4 z-[6] rounded-lg border bg-panel px-3 py-1.5 text-[11px] uppercase tracking-[0.14em]">▣ Brain</button>
-
-      {brainOpen && (
-        <div className="brain-bg fixed inset-0 z-20">
-          <canvas ref={canvasRef} className="absolute inset-0" />
-          <div className="side-bg absolute left-0 top-0 h-full w-[272px] overflow-y-auto border-r border-line px-[18px] py-[22px]">
-            <h2 className="accent text-[13px] tracking-[0.16em]">{graphData?.title || "SECOND BRAIN"}</h2>
-            <div className="mb-3.5 mt-1 text-[11px] text-dim">
-              {graphData ? `${graphData.stats.notes} notes · ${graphData.stats.connections} connections` : "loading…"}
-            </div>
-            <input onChange={(e) => onSearch(e.target.value)} placeholder="Search the brain…" className="w-full rounded-lg border border-line bg-[#0b1424] px-2.5 py-2 text-[13px] text-ink outline-none" />
-            <div className="mt-2 text-[10px] text-dim">scroll = zoom · drag = pan · click a node</div>
-            <div className="mb-1.5 mt-4 text-[10px] uppercase tracking-[0.2em] text-dim">Top hubs</div>
-            {graphData?.hubs.map((h) => (
-              <div key={h.label} className="flex items-center gap-2 px-0.5 py-1 text-xs"><span>{h.label}</span><span className="ml-auto text-dim">{h.size}</span></div>
-            ))}
-            <div className="mb-1.5 mt-4 text-[10px] uppercase tracking-[0.2em] text-dim">Filter</div>
-            {graphData?.groups.map((g) => (
-              <div
-                key={g.name}
-                onClick={() => toggleGroup(g.name)}
-                className={"flex cursor-pointer items-center gap-2 px-0.5 py-1 text-xs " + (hidden.has(g.name) ? "opacity-30" : "")}
-              >
-                <span className="h-2.5 w-2.5 flex-none rounded-full" style={{ background: colorOf(g.name) }} />
-                {g.name}
-                <span className="ml-auto text-dim">{g.count}</span>
+          {results.length > 0 && (
+            <div className="mt-3">
+              <div className="mb-1 text-[9px] uppercase tracking-[0.22em] text-dim">Results ({results.length}) · click to open</div>
+              <div className="flex flex-col">
+                {results.map((p, i) => (
+                  <button key={i} onClick={() => openResult(p)} title={p} className="truncate rounded px-1.5 py-1 text-left text-[11px] text-ink hover:bg-[#12233b]">
+                    {p.split(/[\\/]/).pop()}<span className="ml-1 text-[10px] text-dim">{p.replace(/[\\/][^\\/]*$/, "")}</span>
+                  </button>
+                ))}
               </div>
-            ))}
-          </div>
-          <button onClick={() => setBrainOpen(false)} className="fixed right-4 top-4 z-[22] rounded-lg border border-line bg-panel px-3 py-1.5 text-ink">✕ Close</button>
-          {selNode && (
-            <div className="accent-border absolute bottom-4 right-4 w-[264px] rounded-[10px] border bg-[rgba(6,12,22,.92)] p-3 text-xs leading-relaxed text-dim">
-              <b className="accent text-[13px]">{selNode.label}</b><br />
-              {selNode.group} · {neighbors(selNode).length} connections<br /><br />
-              {neighbors(selNode).join(", ") || "no links yet"}
             </div>
           )}
+
+          <div className="mb-2 mt-5 text-[9px] uppercase tracking-[0.24em] text-dim">Top hubs</div>
+          {graphData?.hubs.slice(0, 7).map((h) => (
+            <div key={h.label} className="mb-2.5">
+              <div className="flex items-baseline justify-between text-[12px] text-ink"><span className="truncate">{h.label}</span><span className="text-dim">{h.size}</span></div>
+              <div className="mt-1 w-full rounded bg-[#0e1a2b]"><div className="thinbar" style={{ width: `${(h.size / maxHub) * 100}%` }} /></div>
+            </div>
+          ))}
+
+          <div className="mb-2 mt-4 text-[9px] uppercase tracking-[0.24em] text-dim">Filter by type</div>
+          {graphData?.groups.filter((g) => g.name !== "core").map((g) => (
+            <div key={g.name} onClick={() => toggleGroup(g.name)}
+              className={"flex cursor-pointer items-center gap-2 py-1 text-[12px] " + (hidden.has(g.name) ? "opacity-30" : "")}>
+              <span className="h-2.5 w-2.5 flex-none rounded-[2px]" style={{ background: colorOf(g.name) }} />
+              <span className="capitalize">{g.name}</span><span className="ml-auto text-dim">{g.count}</span>
+            </div>
+          ))}
+
+          <div className="mt-auto flex items-center justify-between pt-4 text-[9px] tracking-[0.2em] text-dim">
+            <span>ADMIN</span><span>v2.3.0</span>
+          </div>
+        </aside>
+
+        {/* ── CENTER ── */}
+        <section ref={wrapRef} className="relative min-w-0 flex-1 border-x border-line">
+          <div className="hud-grid" />
+          <canvas ref={canvasRef} className="absolute inset-0" />
+          <div className="graph-glow pointer-events-none absolute inset-0" />
+          <div className="absolute left-4 top-4 flex items-center gap-2 rounded-full border border-line bg-[rgba(6,12,22,.7)] px-3 py-1 text-[10px] tracking-wider text-dim">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#2bd576] shadow-[0_0_8px_#2bd576]" />
+            LIVE INDEX · {(st.index?.count ?? 0).toLocaleString()} FILES SCANNED
+          </div>
+          {selNode && !selNode.root && (
+            <div className="accent-border absolute bottom-4 left-4 w-[300px] rounded-[10px] border bg-[rgba(6,12,22,.92)] p-3 text-xs leading-relaxed text-dim">
+              <b className="accent text-[13px]">{selNode.label}</b>
+              <button onClick={() => askAbout(selNode)} className="accent float-right text-[10px] uppercase tracking-wider">ask ▸</button>
+              <br />{selNode.group} · {neighbors(selNode).length} connections<br /><br />
+              <span className="break-words">{neighbors(selNode).slice(0, 24).join(", ") || "no links"}</span>
+            </div>
+          )}
+        </section>
+
+        {/* ── RIGHT ── */}
+        <aside className="flex w-[400px] shrink-0 flex-col bg-[rgba(6,11,20,.72)]">
+          <div className="grid h-[240px] shrink-0 place-items-center">
+            <div style={{ position: "relative", width: 210, height: 210 }}>
+              <svg className="ticks" width="210" height="210" style={{ position: "absolute", inset: 0 }}>
+                <circle cx="105" cy="105" r="99" fill="none" stroke="var(--accent)" strokeWidth="6" strokeDasharray="1.5 8" opacity="0.6" />
+              </svg>
+              <svg className="ticks2" width="210" height="210" style={{ position: "absolute", inset: 0 }}>
+                <circle cx="105" cy="105" r="82" fill="none" stroke="var(--accent)" strokeWidth="3" strokeDasharray="1 11" opacity="0.35" />
+              </svg>
+              <div className="ringline" style={{ position: "absolute", inset: 34, opacity: 0.35 }} />
+              <div className="orb" style={{ position: "absolute", inset: 60 }} />
+            </div>
+          </div>
+          <div className="text-center">
+            <div className="accent text-[15px] font-bold tracking-[0.34em]">{BIG[st.state] || "STANDING BY"}</div>
+            <div className="mt-1 text-[11px] text-dim">{SUB[st.state] || ""}</div>
+          </div>
+          <div className="mt-3 flex justify-center gap-1.5 px-4">
+            {TABS.map(([s, label]) => (
+              <div key={s} className={"rounded border px-2.5 py-1 text-[9px] tracking-[0.15em] " +
+                (st.state === s ? "accent-border accent" : "border-line text-dim")}>{label}</div>
+            ))}
+          </div>
+
+          <div className="mt-4 flex items-center gap-2 px-4 text-[9px] uppercase tracking-[0.24em] text-dim">
+            <span>▪ Transcript</span>
+            <button onClick={clearChat} className="ml-auto tracking-wider hover:text-ink">clear</button>
+          </div>
+          <div ref={feedRef} className="feed-mask mt-2 flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-1">
+            {st.history.map((m, i) => {
+              const you = m.role === "user";
+              return (
+                <div key={i} className="anim-rise flex gap-2">
+                  <div className="avatar" style={{ color: you ? "#ff8a3d" : "var(--accent)", borderColor: you ? "#3a2a1a" : undefined }}>{you ? "YOU" : "AX"}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[9px] tracking-[0.16em] text-dim">{you ? "YOU" : "AXON"} // {clock(m.t ?? 0)}</div>
+                    <div className={"mt-1 rounded-lg px-3 py-2 text-[13px] leading-relaxed " +
+                      (you ? "border border-[#3a2a1a] bg-[#1a130a] text-[#f2dcc0]" : "msg-axon text-ink")}>{m.text}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="glow m-3 flex items-center gap-2 rounded-xl border accent-border bg-panel py-2 pl-3 pr-2">
+            <span className="accent whitespace-nowrap rounded-full border accent-border px-2 py-0.5 text-[10px] uppercase tracking-wider">
+              {(st.model || "model").replace(/^claude-/, "").toUpperCase()}
+            </span>
+            <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()}
+              placeholder="Speak, or type a command…" autoFocus className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-dim" />
+            <button onClick={send} title="Send" className="send-btn grid h-9 w-9 shrink-0 place-items-center rounded-lg text-[#04121a] transition active:scale-90">{st.mic ? "🎙" : "➤"}</button>
+          </div>
+        </aside>
+      </div>
+
+      {phase !== "ready" && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-[#04070d]">
+          <div className="hud-grid opacity-40" />
+          <div className="accent-border relative w-[440px] rounded-2xl border bg-[rgba(8,14,24,.95)] p-8 text-center">
+            <div className="accent text-xl font-semibold tracking-[0.34em]">◆ A·X·O·N</div>
+            <div className="mt-1 text-[10px] tracking-[0.3em] text-dim">SECOND BRAIN SYSTEM</div>
+            {(phase === "loading" || phase === "checking") && (
+              <div className="mt-8 text-sm text-dim">Checking sign-in…</div>
+            )}
+            {phase === "nocli" && (
+              <>
+                <div className="mt-7 text-sm text-ink">Claude Code isn&apos;t installed on this PC.</div>
+                <div className="mt-2 text-xs leading-relaxed text-dim">
+                  Run <span className="accent">setup.ps1</span> once (it installs Claude Code + dependencies), then reopen AXON.
+                </div>
+                <button onClick={recheck} className="send-btn mt-6 rounded-lg px-5 py-2 text-sm text-[#04121a]">Re-check</button>
+              </>
+            )}
+            {phase === "login" && (
+              <>
+                <div className="mt-7 text-sm text-ink">Sign in to Claude to activate AXON.</div>
+                <div className="mt-4 space-y-1.5 text-left text-xs leading-relaxed text-dim">
+                  <div><b className="accent">1.</b> Click <b className="accent">Open sign-in</b> — a small window opens.</div>
+                  <div><b className="accent">2.</b> In it, type <b className="accent">/login</b> and sign in with your Claude account in the browser.</div>
+                  <div><b className="accent">3.</b> Come back here and click <b className="accent">I&apos;ve signed in</b>.</div>
+                </div>
+                <div className="mt-6 flex gap-2">
+                  <button onClick={signIn} className="accent accent-border flex-1 rounded-lg border py-2 text-sm">Open sign-in</button>
+                  <button onClick={recheck} disabled={rechecking} className="send-btn flex-1 rounded-lg py-2 text-sm text-[#04121a] disabled:opacity-60">
+                    {rechecking ? "Verifying…" : "I've signed in"}
+                  </button>
+                </div>
+                <div className="mt-4 text-[10px] text-dim">Uses your Claude subscription — no API key, no extra cost.</div>
+              </>
+            )}
+          </div>
         </div>
       )}
     </main>

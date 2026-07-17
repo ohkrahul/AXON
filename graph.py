@@ -94,6 +94,13 @@ def _tree_graph(root: str) -> dict:
     for h in hubs:
         h["hub"] = True
 
+    # central AXON node linked to the biggest hubs (hub-and-spoke centrepiece)
+    nodes.append({"id": "__axon__", "label": "AXON", "group": "core",
+                  "size": 16, "hub": True, "root": True})
+    for h in hubs[:8]:
+        links.append({"source": "__axon__", "target": h["id"]})
+    groups["core"] = groups.get("core", 0) + 1
+
     name = os.path.basename(root.rstrip("\\/")) or root
     return {
         "title": name.upper() + " · FILE MAP",

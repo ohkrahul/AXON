@@ -44,6 +44,40 @@ body {
 .brain-bg { background: radial-gradient(1000px 700px at 60% 42%, #08121f, #04070d); }
 .side-bg { background: linear-gradient(90deg, rgba(6,12,22,.94), rgba(6,12,22,.5)); }
 
+/* self-contained reactor orb (plain colors — no color-mix, can't be dropped) */
+.orb { border-radius: 50%;
+  background: radial-gradient(circle at 50% 38%, #eafcff 0%, var(--accent) 46%, #05283c 100%);
+  box-shadow: 0 0 46px 3px var(--accent), inset 0 -8px 20px rgba(0,0,0,.45);
+  animation: breathe 3.2s ease-in-out infinite; }
+.app[data-state="thinking"] .orb { animation-duration: 1s; }
+.app[data-state="speaking"] .orb { animation-duration: .7s; }
+.app[data-state="listening"] .orb { animation-duration: 1.6s; }
+.ringline { border-radius: 50%; border: 1px solid var(--accent); }
+
+/* HUD grid backdrop behind the graph */
+.hud-grid { position: absolute; inset: 0; pointer-events: none;
+  background-image: linear-gradient(rgba(90,150,210,.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(90,150,210,.055) 1px, transparent 1px);
+  background-size: 42px 42px; }
+
+/* mini bar under a hub name */
+.thinbar { height: 3px; border-radius: 3px; background: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 45%, transparent); transition: width .5s ease; }
+
+/* small avatar chip in the transcript */
+.avatar { width: 26px; height: 26px; flex: none; display: grid; place-items: center; border-radius: 6px;
+  font-size: 9px; font-weight: 700; letter-spacing: .04em; border: 1px solid var(--color-line); }
+
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-thumb { background: #16283e; border-radius: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* graph area tinted by assistant state */
+.graph-glow { box-shadow: inset 0 0 140px color-mix(in srgb, var(--accent) 14%, transparent); transition: box-shadow .6s ease; }
+.app[data-state="listening"] .graph-glow { box-shadow: inset 0 0 170px color-mix(in srgb, var(--accent) 26%, transparent); }
+.app[data-state="thinking"]  .graph-glow { box-shadow: inset 0 0 190px color-mix(in srgb, var(--accent) 34%, transparent); }
+.app[data-state="speaking"]  .graph-glow { box-shadow: inset 0 0 190px color-mix(in srgb, var(--accent) 30%, transparent); }
+
 /* faint grid + HUD corner brackets */
 .grid { position: fixed; inset: 0; pointer-events: none; opacity: .12;
   background-image: linear-gradient(var(--color-line) 1px, transparent 1px), linear-gradient(90deg, var(--color-line) 1px, transparent 1px);
@@ -67,7 +101,7 @@ body {
 .r3 { width: 150px; height: 150px; border: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
   box-shadow: 0 0 22px color-mix(in srgb, var(--accent) 55%, transparent), inset 0 0 18px color-mix(in srgb, var(--accent) 30%, transparent); }
 .ticks  { animation: spin 26s linear infinite; }
-.ticks2 { animation: spin 40s linear infinite reverse; width: 232px !important; height: 232px !important; }
+.ticks2 { animation: spin 40s linear infinite reverse; }
 .sweep  { animation: spin 6s linear infinite; }
 .core { width: 112px; height: 112px; border-radius: 50%; display: grid; place-items: center;
   background: radial-gradient(circle at 50% 40%, #eaffff 0%, var(--accent) 42%, color-mix(in srgb, var(--accent) 20%, #02060c) 100%);
