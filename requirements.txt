@@ -4,6 +4,11 @@ pyttsx3                 # offline text-to-speech (falls back to Windows System.S
 pycaw                   # exact volume control (Core Audio)
 starlette               # web API framework
 uvicorn                 # ASGI server
+pywin32                 # clipboard history + window management (win32clipboard/win32gui)
+pypdf                   # read text out of PDF files
+python-docx             # read text out of Word (.docx) files
 
-# Everything else (UI, file index, PC control, voice input, graph) uses only the
-# Python standard library + built-in Windows components — no extra packages.
+# Everything else (UI, file index, PC control, voice input, graph, OCR via
+# Windows' built-in engine) uses only the Python standard library + built-in
+# Windows components — no extra packages, no native binaries to get blocked
+# by Smart App Control.

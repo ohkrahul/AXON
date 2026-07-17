@@ -25,12 +25,22 @@ your **Claude subscription** via a one-time browser login — **no API key, no e
 - 🧠 **Claude brain** — one persistent conversation, restricted to safe tools
 - 🖥️ **Controls your PC** — open apps, web search, exact volume %, media, timers &
   reminders, type into any window, screenshots, lock, Spotify, smart-home webhooks
+- 🪟 **Window management** — list, focus, maximize/minimize, snap windows left/right
+- 📋 **Clipboard history** — recall and re-copy anything you copied recently
+- ✅ **To-do list & daily routines** — remembers to-dos, and runs its own scheduled
+  daily instructions ("every morning summarize new files")
 - 🗂️ **Knows your whole PC** — indexes every file & folder across all drives
-  (~half a million here); find & open anything, or have it read a file and summarise
+  (~400k+ here); find & open anything, read PDFs/Word docs, or **search inside**
+  file contents (not just names)
+- 🕐 **"What changed" digest** — ask what files were modified recently
+- 👁️ **Reads your screen** — OCR (Windows' built-in engine) reads on-screen text,
+  error messages, or any image file — no extra installs
 - 🕸️ **Second-brain graph** — interactive force-graph of your files: zoom, pan,
   click a node → AXON tells you about it
-- 🔊 **Talks back** — offline Windows text-to-speech; **"Hey Axon"** wake word ready
-  when a mic is present
+- 🎙️ **Talks & listens** — offline text-to-speech; browser mic push-to-talk in any
+  language; hands-free **"Hey Axon"** always-listening mode
+- 🔔 **Desktop notifications** — timers/reminders/routines ping you even in another tab
+- 📜 **Activity log** — a running record of everything AXON has done, on request
 - 🔀 **Switch models by voice** — "what models do you have", "switch to opus"
 - 🎛️ **Sci-fi HUD** — arc-reactor, live status, top-hub bar-charts, timestamped
   transcript, `LIVE INDEX` counter
@@ -74,7 +84,13 @@ irm https://raw.githubusercontent.com/ohkrahul/AXON/main/install.ps1 | iex
 
 `open notepad` · `set volume to 30%` · `find my resume` · `open the Downloads folder` ·
 `what's in my Documents` · `read that config file and summarise it` ·
-`set a 5 minute timer` · `play lo-fi on spotify` · `switch to opus` · `clear`
+`search my files for "invoice"` · `what changed on my PC today` ·
+`read what's on my screen` · `what's in my clipboard history` ·
+`add "call the bank" to my to-do list` · `schedule a routine at 09:00 to check my inbox` ·
+`snap this window to the left` · `set a 5 minute timer` · `play lo-fi on spotify` ·
+`switch to opus` · `what have you been up to` · `clear`
+
+Click **🎧 wake word** in the HUD to go hands-free — say **"Axon"** then your command.
 
 ## ⚙️ Configuration — `config.py`
 
@@ -95,9 +111,11 @@ irm https://raw.githubusercontent.com/ohkrahul/AXON/main/install.ps1 | iex
 | `web/` | Next.js + Tailwind HUD (the sci-fi UI) |
 | `brain.py` | Claude Agent SDK wrapper (runtime model switching) |
 | `pc_tools.py` | Curated PC-control + file tools Claude can call |
-| `indexer.py` | Whole-PC file/folder catalog + ranked search |
+| `indexer.py` | Whole-PC file/folder catalog + ranked search + recent-changes |
 | `graph.py` | Builds the knowledge graph from a folder tree |
-| `mouth.py` · `voice_input.py` | Text-to-speech · "Hey Axon" wake word |
+| `clipboard_history.py` | Rolling clipboard history |
+| `ocr.ps1` | Screen/image text reading via Windows' built-in OCR engine |
+| `mouth.py` · `voice_input.py` | Text-to-speech · "Hey Axon" wake word (Windows-side) |
 | `preflight.py` | Detects Claude login, guides browser sign-in |
 | `setup.ps1` · `SETUP.md` | One-shot setup for a new PC |
 
@@ -105,7 +123,12 @@ irm https://raw.githubusercontent.com/ohkrahul/AXON/main/install.ps1 | iex
 - Restricted tools only (`permission_mode="dontAsk"`); raw shell is opt-in.
 - Uses your Claude subscription via Claude Code — **you can't** distribute it as a
   public product where strangers use your login (Anthropic terms); that needs the API.
-- On locked-down PCs, Whisper STT is blocked by Smart App Control → the OS
-  recognizer is used instead.
+- On locked-down PCs, Whisper STT is blocked by Smart App Control → OCR and speech
+  use Windows' own built-in engines instead (no native binaries to get blocked).
+- Calendar/email integration and multi-PC sync aren't built in — they need your own
+  OAuth app credentials / a shared cloud service respectively. Point `AXON_NOTES` or
+  `AXON_GRAPH_ROOT` at a synced folder (e.g. OneDrive) for a lightweight multi-PC option.
+- Risky actions (locking the PC, running PowerShell, rescanning the whole index) get a
+  spoken confirmation first — enforced by AXON's persona, not a hard technical gate.
 
 <p align="center"><sub>Built with Claude · Graphify-Labs</sub></p>

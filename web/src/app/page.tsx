@@ -43,7 +43,12 @@ export default function Home() {
   const [uptime, setUptime] = useState(0);
   const [rechecking, setRechecking] = useState(false);
   const [listening, setListening] = useState(false);
+  const [wakeMode, setWakeMode] = useState(false);
+  const [voiceLang, setVoiceLang] = useState("en-US");
   const recogRef = useRef<any>(null);
+  const wakeRef = useRef<any>(null);
+  const wakeModeRef = useRef(false);
+  const prevAxonCount = useRef(0);
 
   const feedRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -67,6 +72,24 @@ export default function Home() {
   useEffect(() => { if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight; }, [st.history.length]);
   useEffect(() => { selRef.current = selNode; }, [selNode]);
   useEffect(() => { hiddenRef.current = hidden; }, [hidden]);
+  useEffect(() => { wakeModeRef.current = wakeMode; }, [wakeMode]);
+
+  // desktop notifications: ping when AXON replies while the tab isn't focused
+  useEffect(() => {
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
+  }, []);
+  useEffect(() => {
+    const axonMsgs = st.history.filter((m) => m.role === "axon");
+    if (axonMsgs.length > prevAxonCount.current) {
+      const last = axonMsgs[axonMsgs.length - 1];
+      if (document.hidden && typeof Notification !== "undefined" && Notification.permission === "granted") {
+        try { new Notification("AXON", { body: last.text.slice(0, 200) }); } catch {}
+      }
+    }
+    prevAxonCount.current = axonMsgs.length;
+  }, [st.history]);
 
   useEffect(() => {
     (async () => {
@@ -97,13 +120,16 @@ export default function Home() {
   }, []);
   useEffect(() => { askRef.current = askAbout; }, [askAbout]);
 
+  const getSR = (): any => (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
   // browser-based push-to-talk (Web Speech API) — uses the OS mic (earbuds etc.)
   const toggleMic = () => {
+    if (wakeMode) return;   // wake-word mode already owns the mic
     if (listening) { recogRef.current?.stop(); return; }
-    const SR: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SR = getSR();
     if (!SR) { alert("Voice input needs Chrome or Edge (Web Speech API not available here)."); return; }
     const r = new SR();
-    r.lang = "en-US"; r.interimResults = true; r.continuous = false; r.maxAlternatives = 1;
+    r.lang = voiceLang; r.interimResults = true; r.continuous = false; r.maxAlternatives = 1;
     r.onstart = () => setListening(true);
     r.onend = () => { setListening(false); recogRef.current = null; };
     r.onerror = (e: any) => { setListening(false); if (e?.error === "not-allowed") alert("Microphone permission was blocked. Allow it in the browser and try again."); };
@@ -118,6 +144,52 @@ export default function Home() {
     };
     recogRef.current = r;
     try { r.start(); } catch {}
+  };
+
+  // hands-free "Hey Axon" — always listening; only sends what follows the
+  // wake word, so ambient conversation without it is ignored. Auto-restarts
+  // itself since browsers stop continuous recognition after a silence gap.
+  const startWakeListening = () => {
+    const SR = getSR();
+    if (!SR) { alert("Voice input needs Chrome or Edge (Web Speech API not available here)."); setWakeMode(false); return; }
+    const r = new SR();
+    r.lang = voiceLang; r.interimResults = false; r.continuous = true; r.maxAlternatives = 1;
+    r.onstart = () => setListening(true);
+    r.onend = () => {
+      setListening(false);
+      if (wakeModeRef.current) { try { r.start(); } catch {} }   // keep listening
+    };
+    r.onerror = (e: any) => {
+      if (e?.error === "not-allowed") {
+        alert("Microphone permission was blocked. Allow it in the browser and try again.");
+        setWakeMode(false); wakeModeRef.current = false;
+      }
+      // other errors (no-speech/network) just let onend restart it
+    };
+    r.onresult = (e: any) => {
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const res = e.results[i];
+        if (!res.isFinal) continue;
+        const transcript = res[0].transcript.trim();
+        const idx = transcript.toLowerCase().indexOf("axon");
+        if (idx === -1) continue;                    // no wake word — ignore
+        const command = transcript.slice(idx + 4).replace(/^[,.:\s]+/, "").trim();
+        if (command) post(command);
+      }
+    };
+    wakeRef.current = r;
+    try { r.start(); } catch {}
+  };
+
+  const toggleWakeMode = () => {
+    if (wakeMode) {
+      setWakeMode(false); wakeModeRef.current = false;
+      wakeRef.current?.stop(); wakeRef.current = null;
+      return;
+    }
+    if (listening) recogRef.current?.stop();
+    setWakeMode(true); wakeModeRef.current = true;
+    startWakeListening();
   };
 
   const signIn = () => { fetch("/api/signin", { method: "POST" }).catch(() => {}); };
@@ -408,19 +480,41 @@ export default function Home() {
             })}
           </div>
 
+          <div className="mx-3 mb-1 flex items-center gap-2">
+            <select value={voiceLang} onChange={(e) => setVoiceLang(e.target.value)}
+              title="Voice recognition language"
+              className="rounded-md border border-line bg-[#0b1424] px-1.5 py-1 text-[10px] text-dim outline-none">
+              <option value="en-US">EN-US</option>
+              <option value="en-GB">EN-UK</option>
+              <option value="hi-IN">Hindi</option>
+              <option value="es-ES">Español</option>
+              <option value="fr-FR">Français</option>
+              <option value="de-DE">Deutsch</option>
+              <option value="ja-JP">日本語</option>
+              <option value="zh-CN">中文</option>
+            </select>
+            <button onClick={toggleWakeMode} title={wakeMode ? "Stop always-listening" : "Always listen for 'Hey Axon'"}
+              className={"rounded-md border px-2 py-1 text-[10px] uppercase tracking-wider transition " +
+                (wakeMode ? "border-transparent bg-[#2bd576] text-[#04121a]" : "accent-border text-dim")}>
+              🎧 {wakeMode ? "wake word on" : "wake word off"}
+            </button>
+          </div>
+
           <div className="glow m-3 flex items-center gap-2 rounded-xl border accent-border bg-panel py-2 pl-3 pr-2">
             <span className="accent whitespace-nowrap rounded-full border accent-border px-2 py-0.5 text-[10px] uppercase tracking-wider">
               {(st.model || "model").replace(/^claude-/, "").toUpperCase()}
             </span>
             <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()}
-              placeholder={listening ? "Listening… speak now" : "Speak, or type a command…"} autoFocus
+              placeholder={wakeMode ? "Say 'Axon' then your command…" : listening ? "Listening… speak now" : "Speak, or type a command…"} autoFocus
               className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-dim" />
-            <button onClick={toggleMic} title={listening ? "Stop listening" : "Talk to Axon"}
-              className={"grid h-9 w-9 shrink-0 place-items-center rounded-lg border transition " +
+            <button onClick={toggleMic} disabled={wakeMode} title={wakeMode ? "Wake-word mode is listening" : listening ? "Stop listening" : "Talk to Axon"}
+              className={"grid h-9 w-9 shrink-0 place-items-center rounded-lg border transition disabled:opacity-40 " +
                 (listening ? "border-transparent bg-[#ff5470] text-white animate-pulse" : "accent-border accent")}>🎤</button>
             <button onClick={send} title="Send" className="send-btn grid h-9 w-9 shrink-0 place-items-center rounded-lg text-[#04121a] transition active:scale-90">➤</button>
           </div>
-          <div className="pb-2 text-center text-[10px] text-dim">🎤 click the mic and speak · allow the browser mic prompt once</div>
+          <div className="pb-2 text-center text-[10px] text-dim">
+            {wakeMode ? "🎧 always listening — say \"Axon\" then your command" : "🎤 click the mic and speak · allow the browser mic prompt once"}
+          </div>
         </aside>
       </div>
 

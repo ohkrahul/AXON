@@ -25,9 +25,11 @@ from starlette.responses import HTMLResponse, JSONResponse
 from starlette.routing import Route
 
 import config
+import clipboard_history
 import graph as graph_mod
 import indexer
 import mouth
+import pc_tools
 import preflight
 import voice_input
 from brain import Brain
@@ -188,10 +190,38 @@ def _greet() -> None:
     STATE["state"] = "idle"
 
 
+def _announce(text: str) -> None:
+    """Timers/reminders land in the chat transcript (not just spoken aloud),
+    so the HUD shows them and can fire a browser notification for them."""
+    _add("axon", text)
+    STATE["state"] = "speaking"
+    mouth.speak(text)
+    STATE["state"] = "idle"
+
+
+# ── scheduled routines: daily HH:MM instructions, queued to the brain ─────
+def _routine_checker(loop: asyncio.AbstractEventLoop) -> None:
+    import datetime as _dt
+    fired_today: set[tuple[int, str]] = set()
+    while True:
+        now = _dt.datetime.now()
+        hhmm = now.strftime("%H:%M")
+        today = now.strftime("%Y-%m-%d")
+        for r in pc_tools.get_routines():
+            key = (r["id"], today)
+            if r["time"] == hhmm and r.get("last_run") != today and key not in fired_today:
+                fired_today.add(key)
+                pc_tools.mark_routine_ran(r["id"], today)
+                loop.call_soon_threadsafe(_brain_q.put_nowait, r["instruction"])
+        time.sleep(20)
+
+
 @asynccontextmanager
 async def lifespan(app):
     loop = asyncio.get_running_loop()
     indexer.load_or_build()        # load cached PC catalog, or build in background
+    pc_tools.ANNOUNCE = _announce  # timers/reminders/routines land in the transcript
+    clipboard_history.start()
     asyncio.create_task(_brain_worker())   # persistent task owns the Claude connection
 
     def _auth_boot() -> None:       # check sign-in off the event loop
@@ -203,6 +233,7 @@ async def lifespan(app):
 
     threading.Thread(target=_auth_boot, daemon=True).start()
     threading.Thread(target=_voice_boot, args=(loop,), daemon=True).start()
+    threading.Thread(target=_routine_checker, args=(loop,), daemon=True).start()
     yield
     await brain.stop()
 
