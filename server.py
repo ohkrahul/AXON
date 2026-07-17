@@ -42,33 +42,24 @@ STATE = {
     "history": [],          # [{role: 'user'|'axon', text: str}]
 }
 brain = Brain()
-_busy = asyncio.Lock()
 _START = time.time()
 
 # auth / first-run state
 AUTH = {"cli": True, "logged_in": False, "checked": False}
 _brain_started = False
+# The Claude SDK's subprocess connection must live in ONE long-lived task, so
+# the brain is connected and driven entirely inside _brain_worker() below.
+_brain_q: "asyncio.Queue[str]" = asyncio.Queue()
+_login_ready = asyncio.Event()
 
 
 def _add(role: str, text: str) -> None:
     STATE["history"].append({"role": role, "text": text, "t": int(time.time() - _START)})
 
 
-async def _ensure_brain() -> None:
-    """Start the Claude conversation once (after login)."""
-    global _brain_started
-    if _brain_started:
-        return
-    await brain.start()
-    _brain_started = True
-    if config.SPEAK_GREETING:
-        threading.Thread(target=_greet, daemon=True).start()
-
-
-async def _handle(text: str) -> None:
-    if not _brain_started:
-        _add("user", text)
-        _add("axon", "I'm not signed in to Claude yet — please complete sign-in first.")
+async def _process(text: str) -> None:
+    text = (text or "").strip()
+    if not text:
         return
     _add("user", text)
     STATE["state"] = "thinking"
@@ -77,6 +68,7 @@ async def _handle(text: str) -> None:
     except Exception as e:  # noqa: BLE001
         STATE["state"] = "error"
         _add("axon", f"Error: {e}")
+        STATE["state"] = "idle"
         return
     _add("axon", reply)
     STATE["state"] = "speaking"
@@ -84,9 +76,25 @@ async def _handle(text: str) -> None:
     STATE["state"] = "idle"
 
 
-async def _guarded(text: str) -> None:
-    async with _busy:                 # one exchange at a time
-        await _handle(text)
+async def _brain_worker() -> None:
+    """One persistent task: connect after login, then serve every request."""
+    global _brain_started
+    await _login_ready.wait()
+    try:
+        await brain.start()
+        _brain_started = True
+    except Exception as e:  # noqa: BLE001
+        print("[brain] failed to start:", e)
+        return
+    if config.SPEAK_GREETING:
+        threading.Thread(target=_greet, daemon=True).start()
+    while True:
+        text = await _brain_q.get()
+        try:
+            await _process(text)
+        except Exception as e:  # noqa: BLE001
+            print("[brain] error:", e)
+            STATE["state"] = "idle"
 
 
 # ── routes ───────────────────────────────────────────────────────────────
@@ -113,7 +121,7 @@ async def recheck(request):
     AUTH["logged_in"] = await loop.run_in_executor(None, preflight.is_logged_in) if AUTH["cli"] else False
     AUTH["checked"] = True
     if AUTH["logged_in"]:
-        await _ensure_brain()
+        _login_ready.set()
     return JSONResponse(AUTH)
 
 
@@ -153,7 +161,7 @@ async def say(request):
     data = await request.json()
     text = (data.get("text") or "").strip()
     if text:
-        asyncio.create_task(_guarded(text))
+        _brain_q.put_nowait(text)      # handled by the persistent brain worker
     return JSONResponse({"ok": True})
 
 
@@ -169,11 +177,7 @@ def _voice_boot(loop: asyncio.AbstractEventLoop) -> None:
         STATE["state"] = "listening"
         cmd = session.next_command()
         if cmd:
-            fut = asyncio.run_coroutine_threadsafe(_guarded(cmd), loop)
-            try:
-                fut.result()
-            except Exception:  # noqa: BLE001
-                pass
+            loop.call_soon_threadsafe(_brain_q.put_nowait, cmd)
         STATE["state"] = "idle"
 
 
@@ -188,13 +192,14 @@ def _greet() -> None:
 async def lifespan(app):
     loop = asyncio.get_running_loop()
     indexer.load_or_build()        # load cached PC catalog, or build in background
+    asyncio.create_task(_brain_worker())   # persistent task owns the Claude connection
 
     def _auth_boot() -> None:       # check sign-in off the event loop
         AUTH["cli"] = preflight.cli_installed()
         AUTH["logged_in"] = preflight.is_logged_in() if AUTH["cli"] else False
         AUTH["checked"] = True
         if AUTH["logged_in"]:
-            asyncio.run_coroutine_threadsafe(_ensure_brain(), loop)
+            loop.call_soon_threadsafe(_login_ready.set)
 
     threading.Thread(target=_auth_boot, daemon=True).start()
     threading.Thread(target=_voice_boot, args=(loop,), daemon=True).start()

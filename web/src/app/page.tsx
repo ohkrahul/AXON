@@ -261,7 +261,7 @@ export default function Home() {
             <div className="text-[9px] tracking-[0.3em] text-dim">SECOND BRAIN SYSTEM</div>
           </div>
         </div>
-        <div className="flex items-center gap-7 text-right">
+        <div className="hidden items-center gap-4 text-right sm:flex md:gap-7">
           {[["NODES", graphData ? graphData.stats.notes.toLocaleString() : "—"],
             ["LINKS", graphData ? graphData.stats.connections.toLocaleString() : "—"],
             ["UPTIME", clock(uptime)]].map(([l, v]) => (
@@ -273,7 +273,7 @@ export default function Home() {
 
       <div className="flex min-h-0 flex-1">
         {/* ── LEFT ── */}
-        <aside className="side-bg flex w-[260px] shrink-0 flex-col overflow-y-auto px-4 py-4">
+        <aside className="side-bg hidden w-[260px] shrink-0 flex-col overflow-y-auto px-4 py-4 lg:flex">
           <div className="mb-3 flex items-baseline justify-between">
             <div className="accent text-xs font-semibold tracking-[0.14em]">▪ KNOWLEDGE MAP</div>
             <div className="text-[10px] text-dim">{graphData?.stats.notes ?? 0} nodes</div>
@@ -317,7 +317,7 @@ export default function Home() {
         </aside>
 
         {/* ── CENTER ── */}
-        <section ref={wrapRef} className="relative min-w-0 flex-1 border-x border-line">
+        <section ref={wrapRef} className="relative hidden min-w-0 flex-1 border-x border-line md:block">
           <div className="hud-grid" />
           <canvas ref={canvasRef} className="absolute inset-0" />
           <div className="graph-glow pointer-events-none absolute inset-0" />
@@ -336,7 +336,7 @@ export default function Home() {
         </section>
 
         {/* ── RIGHT ── */}
-        <aside className="flex w-[400px] shrink-0 flex-col bg-[rgba(6,11,20,.72)]">
+        <aside className="flex w-full shrink-0 flex-col bg-[rgba(6,11,20,.72)] md:w-[360px] lg:w-[400px]">
           <div className="grid h-[240px] shrink-0 place-items-center">
             <div style={{ position: "relative", width: 210, height: 210 }}>
               <svg className="ticks" width="210" height="210" style={{ position: "absolute", inset: 0 }}>
@@ -392,8 +392,9 @@ export default function Home() {
       </div>
 
       {phase !== "ready" && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-[#04070d]">
-          <div className="hud-grid opacity-40" />
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "#04070d",
+                      display: "grid", placeItems: "center" }}>
+          <div className="hud-grid" style={{ opacity: 0.4 }} />
           <div className="accent-border relative w-[440px] rounded-2xl border bg-[rgba(8,14,24,.95)] p-8 text-center">
             <div className="accent text-xl font-semibold tracking-[0.34em]">◆ A·X·O·N</div>
             <div className="mt-1 text-[10px] tracking-[0.3em] text-dim">SECOND BRAIN SYSTEM</div>
