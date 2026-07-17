@@ -42,6 +42,8 @@ export default function Home() {
   const [results, setResults] = useState<string[]>([]);
   const [uptime, setUptime] = useState(0);
   const [rechecking, setRechecking] = useState(false);
+  const [listening, setListening] = useState(false);
+  const recogRef = useRef<any>(null);
 
   const feedRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -94,6 +96,29 @@ export default function Home() {
       : `In one or two sentences, what is the file "${n.label}"? If it's text, read it and summarize. Path: ${n.id}`);
   }, []);
   useEffect(() => { askRef.current = askAbout; }, [askAbout]);
+
+  // browser-based push-to-talk (Web Speech API) — uses the OS mic (earbuds etc.)
+  const toggleMic = () => {
+    if (listening) { recogRef.current?.stop(); return; }
+    const SR: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) { alert("Voice input needs Chrome or Edge (Web Speech API not available here)."); return; }
+    const r = new SR();
+    r.lang = "en-US"; r.interimResults = true; r.continuous = false; r.maxAlternatives = 1;
+    r.onstart = () => setListening(true);
+    r.onend = () => { setListening(false); recogRef.current = null; };
+    r.onerror = (e: any) => { setListening(false); if (e?.error === "not-allowed") alert("Microphone permission was blocked. Allow it in the browser and try again."); };
+    r.onresult = (e: any) => {
+      let finalText = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const res = e.results[i];
+        if (res.isFinal) finalText += res[0].transcript;
+        else setText(res[0].transcript);      // live preview while speaking
+      }
+      if (finalText.trim()) { setText(""); post(finalText.trim()); r.stop(); }
+    };
+    recogRef.current = r;
+    try { r.start(); } catch {}
+  };
 
   const signIn = () => { fetch("/api/signin", { method: "POST" }).catch(() => {}); };
   const recheck = async () => {
@@ -251,7 +276,7 @@ export default function Home() {
   const phase = !auth ? "loading" : !auth.checked ? "checking" : !auth.cli ? "nocli" : !auth.logged_in ? "login" : "ready";
 
   return (
-    <main className="app flex h-screen w-screen flex-col overflow-hidden" data-state={st.state}>
+    <main className="app flex h-screen w-screen flex-col overflow-hidden" data-state={listening ? "listening" : st.state}>
       {/* ── TOP BAR ── */}
       <div className="flex h-14 shrink-0 items-center justify-between border-b border-line px-5">
         <div className="flex items-center gap-3">
@@ -388,9 +413,14 @@ export default function Home() {
               {(st.model || "model").replace(/^claude-/, "").toUpperCase()}
             </span>
             <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()}
-              placeholder="Speak, or type a command…" autoFocus className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-dim" />
-            <button onClick={send} title="Send" className="send-btn grid h-9 w-9 shrink-0 place-items-center rounded-lg text-[#04121a] transition active:scale-90">{st.mic ? "🎙" : "➤"}</button>
+              placeholder={listening ? "Listening… speak now" : "Speak, or type a command…"} autoFocus
+              className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-dim" />
+            <button onClick={toggleMic} title={listening ? "Stop listening" : "Talk to Axon"}
+              className={"grid h-9 w-9 shrink-0 place-items-center rounded-lg border transition " +
+                (listening ? "border-transparent bg-[#ff5470] text-white animate-pulse" : "accent-border accent")}>🎤</button>
+            <button onClick={send} title="Send" className="send-btn grid h-9 w-9 shrink-0 place-items-center rounded-lg text-[#04121a] transition active:scale-90">➤</button>
           </div>
+          <div className="pb-2 text-center text-[10px] text-dim">🎤 click the mic and speak · allow the browser mic prompt once</div>
         </aside>
       </div>
 
